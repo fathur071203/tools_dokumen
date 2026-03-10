@@ -1,14 +1,24 @@
 import base64
+import io
 import os
 import struct
 
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from pypdf import PdfReader, PdfWriter
 
 
 class CryptoService:
     MAGIC = b"FLK1"
+
+    @classmethod
+    def is_file_locker_format(cls, file_bytes: bytes) -> bool:
+        return len(file_bytes) >= 4 and file_bytes[:4] == cls.MAGIC
+
+    @staticmethod
+    def is_pdf(file_bytes: bytes) -> bool:
+        return file_bytes.lstrip().startswith(b"%PDF-")
 
     def _derive_key(self, password: str, salt: bytes) -> bytes:
         kdf = PBKDF2HMAC(
@@ -58,3 +68,39 @@ class CryptoService:
             raise ValueError("Password salah atau file terenkripsi rusak.") from exc
 
         return original_name, plain
+
+    def encrypt_pdf(self, file_bytes: bytes, password: str) -> bytes:
+        reader = PdfReader(io.BytesIO(file_bytes))
+        if reader.is_encrypted:
+            raise ValueError("PDF sudah memiliki password atau proteksi lain.")
+
+        writer = PdfWriter()
+        for page in reader.pages:
+            writer.add_page(page)
+
+        if reader.metadata:
+            writer.add_metadata(reader.metadata)
+
+        writer.encrypt(password)
+        output = io.BytesIO()
+        writer.write(output)
+        return output.getvalue()
+
+    def decrypt_pdf(self, file_bytes: bytes, password: str) -> bytes:
+        reader = PdfReader(io.BytesIO(file_bytes))
+        if not reader.is_encrypted:
+            raise ValueError("File PDF ini tidak diproteksi dengan password.")
+
+        if reader.decrypt(password) == 0:
+            raise ValueError("Password PDF salah atau file PDF rusak.")
+
+        writer = PdfWriter()
+        for page in reader.pages:
+            writer.add_page(page)
+
+        if reader.metadata:
+            writer.add_metadata(reader.metadata)
+
+        output = io.BytesIO()
+        writer.write(output)
+        return output.getvalue()

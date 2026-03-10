@@ -79,6 +79,7 @@ class FileLockerPresenter:
             decrypted: DecryptedArtifact = self.model.decrypt_file(
                 encrypted_content=result.encrypted_file.read(),
                 password=result.password.strip(),
+                uploaded_name=result.encrypted_file.name,
             )
         except Exception as exc:
             st.error(f"❌ Gagal dekripsi: {exc}")
@@ -89,7 +90,7 @@ class FileLockerPresenter:
             "📥 Download File Terdekripsi",
             data=decrypted.content,
             file_name=decrypted.file_name,
-            mime="application/octet-stream",
+            mime=decrypted.mime_type,
         )
 
     def _render_encrypt_download(self, encrypted_artifacts: list[EncryptedArtifact]) -> None:
@@ -99,7 +100,7 @@ class FileLockerPresenter:
                 "📥 Download File Terenkripsi",
                 data=artifact.content,
                 file_name=artifact.file_name,
-                mime="application/octet-stream",
+                mime=artifact.mime_type,
             )
             return
 

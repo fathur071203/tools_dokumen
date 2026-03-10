@@ -27,7 +27,10 @@ class FileLockerEncryptView:
             go_home = st.button("← Kembali", key="btn_home_encrypt")
         with col_b:
             st.markdown("## 🔐 File Locker")
-            st.markdown("Enkripsi file dengan password. Bisa 1 password untuk semua file, atau password berbeda untuk tiap file.")
+            st.markdown(
+                "Enkripsi file dengan password. PDF akan tetap berformat `.pdf` dan meminta password saat dibuka; "
+                "file selain PDF akan disimpan sebagai `.encrypted`."
+            )
 
         st.markdown("---")
         
@@ -38,7 +41,7 @@ class FileLockerEncryptView:
         uploads = st.file_uploader(
             "Upload file (boleh banyak file)",
             accept_multiple_files=True,
-            help="Semua tipe file didukung.",
+            help="PDF memakai password bawaan PDF. File non-PDF memakai format .encrypted.",
             type=None,
         )
 
@@ -156,6 +159,9 @@ class FileLockerEncryptView:
                         st.warning(f"⚠️ Jumlah password ({len(passwords_from_excel)}) ≠ jumlah file ({len(uploads)})")
 
         st.markdown("---")
+        pdf_count = sum(1 for upload in uploads if upload.name.lower().endswith(".pdf"))
+        if pdf_count:
+            st.info(f"{pdf_count} file PDF akan tetap berekstensi .pdf dan meminta password saat dibuka.")
         encrypt_clicked = st.button("🔒 Enkripsi File", type="primary", use_container_width=False)
 
         return EncryptViewResult(
