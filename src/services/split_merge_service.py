@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import sys
 import tempfile
 import zipfile
 from pathlib import Path
@@ -10,6 +11,10 @@ from pypdf import PdfReader, PdfWriter
 
 
 class SplitMergeService:
+    @staticmethod
+    def supports_office_automation() -> bool:
+        return sys.platform.startswith("win")
+
     @staticmethod
     def get_family(filename: str) -> str:
         ext = Path(filename).suffix.lower()
@@ -27,11 +32,17 @@ class SplitMergeService:
             return []
         if len(uploads) == 1:
             family = cls.get_family(uploads[0].name)
+            if family in {"word", "ppt"} and not cls.supports_office_automation():
+                return []
             return ["split"] if family in {"pdf", "word", "ppt"} else []
 
         families = {cls.get_family(upload.name) for upload in uploads}
-        if len(families) == 1 and families.pop() in {"pdf", "word", "ppt"}:
-            return ["merge"]
+        if len(families) == 1:
+            family = next(iter(families))
+            if family in {"word", "ppt"} and not cls.supports_office_automation():
+                return []
+            if family in {"pdf", "word", "ppt"}:
+                return ["merge"]
         return []
 
     @staticmethod

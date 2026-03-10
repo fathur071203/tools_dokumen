@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import sys
 import tempfile
 import zipfile
 from pathlib import Path
@@ -35,10 +36,17 @@ class ConvertService:
         "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     }
 
+    @staticmethod
+    def supports_office_to_pdf() -> bool:
+        return sys.platform.startswith("win")
+
     @classmethod
     def get_available_targets(cls, filename: str) -> list[str]:
         source_ext = Path(filename).suffix.lower()
-        return cls.SUPPORTED_OPTIONS.get(source_ext, [])
+        targets = list(cls.SUPPORTED_OPTIONS.get(source_ext, []))
+        if source_ext in {".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"} and not cls.supports_office_to_pdf():
+            return []
+        return targets
 
     @classmethod
     def get_available_targets_for_uploads(cls, uploads: list[Any]) -> list[str]:
@@ -180,11 +188,14 @@ class ConvertService:
 
     @classmethod
     def _office_to_pdf(cls, file_bytes: bytes, source_name: str) -> tuple[io.BytesIO, str, str, str]:
+        if not cls.supports_office_to_pdf():
+            raise RuntimeError("Konversi Office ke PDF hanya tersedia di Windows yang memiliki Microsoft Office desktop.")
+
         try:
             import pythoncom
             import win32com.client
         except ImportError as exc:
-            raise ImportError("pywin32 belum tersedia. Install dependency terlebih dahulu.") from exc
+            raise ImportError("Dependensi Windows untuk konversi Office belum tersedia.") from exc
 
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)

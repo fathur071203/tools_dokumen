@@ -26,10 +26,13 @@ class FileSplitMergeView:
             go_home = st.button("← Kembali", key="btn_home_split_merge")
         with col_b:
             st.markdown("## 🪄 Split & Gabung Dokumen")
-            st.markdown(
-                "Pisahkan atau gabungkan PDF, Word, dan PowerPoint. "
-                "Satu baris pola = satu file output."
-            )
+            description = "Pisahkan atau gabungkan PDF, Word, dan PowerPoint. Satu baris pola = satu file output."
+            if not SplitMergeService.supports_office_automation():
+                description = (
+                    "Di server ini, split/gabung PDF tersedia penuh. "
+                    "Split/gabung Word dan PowerPoint hanya aktif di Windows dengan Microsoft Office desktop."
+                )
+            st.markdown(description)
 
         st.markdown("---")
 
@@ -37,7 +40,7 @@ class FileSplitMergeView:
             "Upload dokumen",
             accept_multiple_files=True,
             type=None,
-            help="PDF, DOC/DOCX, PPT/PPTX",
+            help="PDF selalu didukung; DOC/DOCX dan PPT/PPTX hanya aktif penuh di Windows + Microsoft Office desktop",
         )
 
         if not uploads:
@@ -46,7 +49,10 @@ class FileSplitMergeView:
 
         modes = SplitMergeService.get_supported_modes(list(uploads))
         if not modes:
-            st.error("Mode tidak tersedia. Untuk split upload 1 file; untuk merge upload beberapa file dengan tipe yang sama.")
+            st.error(
+                "Mode tidak tersedia. Untuk split upload 1 file; untuk merge upload beberapa file dengan tipe yang sama. "
+                "Di Linux deploy, Word/PPT tidak didukung untuk fitur ini."
+            )
             return SplitMergeViewResult(go_home, False, list(uploads), "", "", [])
 
         st.markdown("### 📋 File yang Dipilih")

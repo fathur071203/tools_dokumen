@@ -40,4 +40,7 @@ class FileSplitMergePresenter:
             )
         except Exception as exc:
             st.error(f"❌ Gagal memproses dokumen: {exc}")
-            st.info("Untuk Word/PPT, pastikan Microsoft Office desktop tersedia di Windows ini.")
+            st.info(
+                "Untuk Word/PPT, fitur ini hanya berjalan di Windows dengan Microsoft Office desktop. "
+                "Di deploy Linux, gunakan file PDF untuk split/gabung."
+            )

@@ -24,10 +24,16 @@ class FileConverterView:
             go_home = st.button("← Kembali", key="btn_home_converter")
         with col_b:
             st.markdown("## 🔄 Konversi Dokumen")
-            st.markdown(
+            description = (
                 "Konversi dokumen dua arah untuk skenario utama: PDF ke Word/PPT, "
                 "dan Word/Excel/PPT/gambar ke PDF."
             )
+            if not ConvertService.supports_office_to_pdf():
+                description = (
+                    "Konversi PDF ke Word/PPT dan gambar ke PDF tersedia di server ini. "
+                    "Konversi Word/Excel/PPT ke PDF hanya aktif di Windows dengan Microsoft Office desktop."
+                )
+            st.markdown(description)
 
         st.markdown("---")
 
@@ -99,15 +105,21 @@ class FileConverterView:
 
         st.caption("Konversi yang tersedia tergantung jenis file sumber.")
         with st.expander("Lihat dukungan konversi", expanded=False):
-            st.markdown(
-                "- PDF → DOCX\n"
-                "- PDF → PPTX\n"
-                "- DOC/DOCX → PDF\n"
-                "- XLS/XLSX → PDF\n"
-                "- PPT/PPTX → PDF\n"
-                "- JPG/PNG/BMP/WEBP → PDF\n"
-                "- Multi-file → PDF gabungan atau ZIP berisi PDF per file"
-            )
+            support_lines = [
+                "- PDF → DOCX",
+                "- PDF → PPTX",
+                "- JPG/PNG/BMP/WEBP → PDF",
+                "- Multi-file → PDF gabungan atau ZIP berisi PDF per file",
+            ]
+            if ConvertService.supports_office_to_pdf():
+                support_lines[2:2] = [
+                    "- DOC/DOCX → PDF",
+                    "- XLS/XLSX → PDF",
+                    "- PPT/PPTX → PDF",
+                ]
+            else:
+                support_lines.append("- Word/Excel/PPT → PDF hanya tersedia di Windows + Microsoft Office desktop")
+            st.markdown("\n".join(support_lines))
 
         st.markdown("---")
         convert_clicked = st.button("🔄 Konversi Sekarang", type="primary", use_container_width=True, key="btn_convert")

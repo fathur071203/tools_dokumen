@@ -45,5 +45,6 @@ class FileConverterPresenter:
             except Exception as exc:
                 st.error(f"❌ Gagal mengonversi file: {exc}")
                 st.info(
-                    "Untuk Word/Excel/PPT ke PDF, pastikan Microsoft Office desktop tersedia di Windows ini."
+                    "Untuk Word/Excel/PPT ke PDF, fitur ini hanya berjalan di Windows dengan Microsoft Office desktop. "
+                    "Di deploy Linux, gunakan PDF ↔ DOCX/PPTX atau gambar → PDF."
                 )
