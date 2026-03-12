@@ -1,3 +1,4 @@
+
 # Tools Dokumen (Streamlit)
 
 Aplikasi Streamlit dengan halaman utama berisi kumpulan tools.
@@ -49,9 +50,33 @@ tools_dokumen/
 - **File Locker Decrypt**:
   - Dekripsi file `.encrypted` dengan password.
   - Download file asli.
+- **Konversi Dokumen**:
+  - PDF ke Word/PPT.
+  - Word/Excel/PPT dan gambar ke PDF.
+- **Watermark PDF**:
+  - Watermark teks custom.
+  - Pilihan posisi watermark.
+  - Orientasi lurus atau miring.
+  - Upload gambar PNG sebagai watermark.
+- **Split & Gabung Dokumen**:
+  - Split PDF/Word/PPT berdasarkan pola.
+  - Gabungkan dokumen dengan tipe yang sama.
 
 ## Menjalankan
 1. Install dependency:
    - `pip install -r requirements.txt`
 2. Jalankan Streamlit:
    - `streamlit run app.py`
+
+## Password Masuk Aplikasi
+- Aplikasi sekarang memakai password sebelum user bisa masuk ke halaman tools.
+- Password default: `dokumen123`
+- Disarankan segera ganti password lewat environment variable `TOOLS_DOKUMEN_PASSWORD`
+- Alternatif lain, jika memakai Streamlit secrets, tambahkan `app_password`
+
+Contoh PowerShell:
+
+```powershell
+$env:TOOLS_DOKUMEN_PASSWORD = "password-baru-anda"
+streamlit run app.py
+```

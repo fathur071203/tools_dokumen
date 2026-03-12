@@ -8,6 +8,7 @@ class HomeViewResult:
     open_locker: bool
     open_compressor: bool
     open_converter: bool
+    open_watermark: bool
     open_split_merge: bool
 
 
@@ -48,6 +49,16 @@ class HomeView:
 
         st.markdown("---")
 
+        # PDF Watermark
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.markdown("### 💧 Watermark PDF")
+            st.write("Tambahkan watermark teks custom atau gambar PNG ke file PDF, dengan posisi dan orientasi yang bisa diatur.")
+        with col2:
+            open_watermark = st.button("Buka Watermark", use_container_width=True, type="primary", key="btn_watermark")
+
+        st.markdown("---")
+
         # Split Merge
         col1, col2 = st.columns([3, 1])
         with col1:
@@ -60,5 +71,6 @@ class HomeView:
             open_locker=open_locker,
             open_compressor=open_compressor,
             open_converter=open_converter,
+            open_watermark=open_watermark,
             open_split_merge=open_split_merge,
         )
