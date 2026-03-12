@@ -6,6 +6,7 @@ from src.presenters.file_locker_presenter import FileLockerPresenter
 from src.presenters.file_compressor_presenter import FileCompressorPresenter
 from src.presenters.file_converter_presenter import FileConverterPresenter
 from src.presenters.file_watermark_presenter import FileWatermarkPresenter
+from src.presenters.file_cleaner_presenter import FileCleanerPresenter
 from src.presenters.file_split_merge_presenter import FileSplitMergePresenter
 from src.presenters.home_presenter import HomePresenter
 from src.services.auth_service import AuthService
@@ -17,6 +18,7 @@ from src.views.file_locker_encrypt_view import FileLockerEncryptView
 from src.views.file_compressor_view import FileCompressorView
 from src.views.file_converter_view import FileConverterView
 from src.views.file_watermark_view import FileWatermarkView
+from src.views.file_cleaner_view import FileCleanerView
 from src.views.file_split_merge_view import FileSplitMergeView
 from src.views.home_view import HomeView
 
@@ -40,6 +42,9 @@ class App:
         )
         self.file_watermark_presenter = FileWatermarkPresenter(
             view=FileWatermarkView()
+        )
+        self.file_cleaner_presenter = FileCleanerPresenter(
+            view=FileCleanerView()
         )
         self.file_split_merge_presenter = FileSplitMergePresenter(
             view=FileSplitMergeView()
@@ -79,6 +84,8 @@ class App:
             self.file_converter_presenter.present()
         elif page == Page.WATERMARK:
             self.file_watermark_presenter.present()
+        elif page == Page.CLEANER:
+            self.file_cleaner_presenter.present()
         elif page == Page.SPLIT_MERGE:
             self.file_split_merge_presenter.present()
         else:

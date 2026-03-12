@@ -58,6 +58,11 @@ tools_dokumen/
   - Pilihan posisi watermark.
   - Orientasi lurus atau miring.
   - Upload gambar PNG sebagai watermark.
+- **Cleaner LTDBB**:
+  - Bersihkan template LTDBB CSV/XLS/XLSX.
+  - Buang baris 1–5, pakai baris ke-6 sebagai header, dan hapus kolom A/B.
+  - Normalisasi kolom penting otomatis.
+  - Preview 10 baris, ringkasan, dan top destinasi berdasarkan frekuensi/nominal.
 - **Split & Gabung Dokumen**:
   - Split PDF/Word/PPT berdasarkan pola.
   - Gabungkan dokumen dengan tipe yang sama.

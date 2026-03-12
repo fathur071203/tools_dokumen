@@ -16,5 +16,7 @@ class HomePresenter:
             SessionStateManager.go(Page.CONVERTER)
         if result.open_watermark:
             SessionStateManager.go(Page.WATERMARK)
+        if result.open_cleaner:
+            SessionStateManager.go(Page.CLEANER)
         if result.open_split_merge:
             SessionStateManager.go(Page.SPLIT_MERGE)

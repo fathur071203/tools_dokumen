@@ -29,7 +29,7 @@ class FileLockerEncryptView:
             st.markdown("## 🔐 File Locker")
             st.markdown(
                 "Enkripsi file dengan password. PDF akan tetap berformat `.pdf` dan meminta password saat dibuka; "
-                "file selain PDF akan disimpan sebagai `.encrypted`."
+                "file selain PDF akan disimpan sebagai `.encrypted`. Khusus Word/Excel/PowerPoint, file akan dibungkus ZIP dulu sebelum dikunci."
             )
 
         st.markdown("---")
@@ -41,7 +41,7 @@ class FileLockerEncryptView:
         uploads = st.file_uploader(
             "Upload file (boleh banyak file)",
             accept_multiple_files=True,
-            help="PDF memakai password bawaan PDF. File non-PDF memakai format .encrypted.",
+            help="PDF memakai password bawaan PDF. File non-PDF memakai format .encrypted. File Word/Excel/PPT otomatis dibungkus ZIP sebelum enkripsi.",
             type=None,
         )
 
@@ -160,8 +160,15 @@ class FileLockerEncryptView:
 
         st.markdown("---")
         pdf_count = sum(1 for upload in uploads if upload.name.lower().endswith(".pdf"))
+        office_count = sum(
+            1
+            for upload in uploads
+            if upload.name.lower().endswith((".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"))
+        )
         if pdf_count:
             st.info(f"{pdf_count} file PDF akan tetap berekstensi .pdf dan meminta password saat dibuka.")
+        if office_count:
+            st.info(f"{office_count} file Word/Excel/PowerPoint akan dibungkus ZIP terlebih dahulu sebelum dibuat `.encrypted`.")
         encrypt_clicked = st.button("🔒 Enkripsi File", type="primary", use_container_width=False)
 
         return EncryptViewResult(

@@ -10,6 +10,7 @@ class Page(str, Enum):
     COMPRESSOR = "compressor"
     CONVERTER = "converter"
     WATERMARK = "watermark"
+    CLEANER = "cleaner"
     SPLIT_MERGE = "split_merge"
 
 
