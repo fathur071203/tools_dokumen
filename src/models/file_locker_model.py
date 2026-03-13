@@ -5,6 +5,7 @@ from pathlib import Path
 from dataclasses import dataclass
 
 from src.services.crypto_service import CryptoService
+from src.services.output_naming_service import OutputNamingService
 
 
 class PasswordMode:
@@ -39,12 +40,16 @@ class FileLockerModel:
     def __init__(self, crypto_service: CryptoService):
         self.crypto_service = crypto_service
 
-    def encrypt_file(self, file_name: str, content: bytes, password: str) -> EncryptedArtifact:
+    def encrypt_file(self, file_name: str, content: bytes, password: str, output_index: int | None = None) -> EncryptedArtifact:
         suffix = Path(file_name).suffix.lower()
 
         if suffix == ".pdf":
-            encrypted_pdf = self.crypto_service.encrypt_pdf(content, password)
-            return EncryptedArtifact(file_name=file_name, content=encrypted_pdf, mime_type="application/pdf")
+            encrypted_pdf = self.crypto_service.encrypt_pdf(content, password, original_name=file_name)
+            return EncryptedArtifact(
+                file_name=self._build_encrypted_output_name("pdf", output_index),
+                content=encrypted_pdf,
+                mime_type="application/pdf",
+            )
 
         original_name = file_name
         if self._should_archive_before_encrypt(file_name):
@@ -52,7 +57,7 @@ class FileLockerModel:
 
         encrypted = self.crypto_service.encrypt_blob(content, password, original_name)
         return EncryptedArtifact(
-            file_name=f"{original_name}.encrypted",
+            file_name=self._build_encrypted_output_name("encrypted", output_index),
             content=encrypted,
             mime_type="application/octet-stream",
         )
@@ -60,11 +65,13 @@ class FileLockerModel:
     def decrypt_file(self, encrypted_content: bytes, password: str, uploaded_name: str | None = None) -> DecryptedArtifact:
         if self.crypto_service.is_file_locker_format(encrypted_content):
             original_name, plain = self.crypto_service.decrypt_blob(encrypted_content, password)
-            return DecryptedArtifact(file_name=original_name, content=plain, mime_type=self._guess_mime_type(original_name))
+            output_name = OutputNamingService.build_filename("decrypted_file", Path(original_name).suffix or ".bin")
+            return DecryptedArtifact(file_name=output_name, content=plain, mime_type=self._guess_mime_type(original_name))
 
         if self.crypto_service.is_pdf(encrypted_content):
-            plain = self.crypto_service.decrypt_pdf(encrypted_content, password)
-            output_name = uploaded_name or "decrypted_document.pdf"
+            plain, original_name = self.crypto_service.decrypt_pdf(encrypted_content, password)
+            extension = Path(original_name or uploaded_name or "decrypted_document.pdf").suffix or ".pdf"
+            output_name = OutputNamingService.build_filename("decrypted_document", extension)
             return DecryptedArtifact(file_name=output_name, content=plain, mime_type="application/pdf")
 
         raise ValueError("Format file tidak didukung untuk dekripsi.")
@@ -86,3 +93,8 @@ class FileLockerModel:
             archive.writestr(file_name, content)
         archive_buffer.seek(0)
         return archive_name, archive_buffer.getvalue()
+
+    @staticmethod
+    def _build_encrypted_output_name(extension: str, output_index: int | None = None) -> str:
+        index = output_index or 1
+        return f"locked_file_{index:03d}.{extension}"

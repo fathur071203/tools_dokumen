@@ -9,7 +9,6 @@ class HomeViewResult:
     open_compressor: bool
     open_converter: bool
     open_watermark: bool
-    open_cleaner: bool
     open_split_merge: bool
 
 
@@ -60,16 +59,6 @@ class HomeView:
 
         st.markdown("---")
 
-        # LTDBB Cleaner
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            st.markdown("### 🧹 Cleaner LTDBB")
-            st.write("Bersihkan template LTDBB CSV/XLS/XLSX, normalisasi kolom, dan tampilkan ringkasan analitik otomatis.")
-        with col2:
-            open_cleaner = st.button("Buka Cleaner", use_container_width=True, type="primary", key="btn_cleaner")
-
-        st.markdown("---")
-
         # Split Merge
         col1, col2 = st.columns([3, 1])
         with col1:
@@ -83,6 +72,5 @@ class HomeView:
             open_compressor=open_compressor,
             open_converter=open_converter,
             open_watermark=open_watermark,
-            open_cleaner=open_cleaner,
             open_split_merge=open_split_merge,
         )

@@ -44,11 +44,12 @@ class FileLockerPresenter:
         encrypted_artifacts: list[EncryptedArtifact] = []
 
         try:
-            for upload, password in zip(result.uploads, result.passwords):
+            for index, (upload, password) in enumerate(zip(result.uploads, result.passwords), start=1):
                 encrypted = self.model.encrypt_file(
                     file_name=upload.name,
                     content=upload.read(),
                     password=password.strip(),
+                    output_index=index,
                 )
                 encrypted_artifacts.append(encrypted)
         except Exception as exc:

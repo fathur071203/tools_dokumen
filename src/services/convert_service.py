@@ -13,6 +13,8 @@ from pptx import Presentation
 from pptx.util import Emu
 from pdf2docx import Converter
 
+from src.services.output_naming_service import OutputNamingService
+
 
 class ConvertService:
     SUPPORTED_OPTIONS: dict[str, list[str]] = {
@@ -141,7 +143,7 @@ class ConvertService:
 
             output = io.BytesIO(docx_path.read_bytes())
             output.seek(0)
-            return output, docx_path.name, cls.MIME_BY_EXT["docx"], "PDF berhasil dikonversi ke Word (DOCX)."
+            return output, OutputNamingService.build_filename("converted_document", ".docx"), cls.MIME_BY_EXT["docx"], "PDF berhasil dikonversi ke Word (DOCX)."
 
     @classmethod
     def _pdf_to_pptx(cls, file_bytes: bytes, source_name: str) -> tuple[io.BytesIO, str, str, str]:
@@ -172,7 +174,7 @@ class ConvertService:
         presentation.save(output)
         output.seek(0)
         pdf.close()
-        filename = f"{Path(source_name).stem}.pptx"
+        filename = OutputNamingService.build_filename("converted_document", ".pptx")
         return output, filename, cls.MIME_BY_EXT["pptx"], "PDF berhasil dikonversi ke PowerPoint (setiap halaman menjadi slide)."
 
     @classmethod
@@ -183,7 +185,7 @@ class ConvertService:
             output = io.BytesIO()
             img.save(output, format="PDF", resolution=150.0)
             output.seek(0)
-            filename = f"{Path(source_name).stem}.pdf"
+            filename = OutputNamingService.build_filename("converted_document", ".pdf")
             return output, filename, cls.MIME_BY_EXT["pdf"], "Gambar berhasil dikonversi ke PDF."
 
     @classmethod
@@ -223,7 +225,7 @@ class ConvertService:
 
             output = io.BytesIO(output_path.read_bytes())
             output.seek(0)
-            return output, output_path.name, cls.MIME_BY_EXT["pdf"], "File Office berhasil dikonversi ke PDF."
+            return output, OutputNamingService.build_filename("converted_document", ".pdf"), cls.MIME_BY_EXT["pdf"], "File Office berhasil dikonversi ke PDF."
 
     @classmethod
     def _merge_pdf_outputs(cls, outputs: list[tuple[str, bytes]]) -> tuple[io.BytesIO, str, str, str]:
@@ -240,7 +242,7 @@ class ConvertService:
             output.seek(0)
             return (
                 output,
-                "hasil_konversi_gabungan.pdf",
+                OutputNamingService.build_filename("converted_document", ".pdf"),
                 cls.MIME_BY_EXT["pdf"],
                 f"{len(outputs)} file berhasil dikonversi dan digabung menjadi 1 PDF.",
             )
@@ -249,6 +251,7 @@ class ConvertService:
 
     @classmethod
     def _package_pdf_outputs(cls, outputs: list[tuple[str, bytes]]) -> tuple[io.BytesIO, str, str, str]:
+        outputs = OutputNamingService.anonymize_named_payloads(outputs, "converted_document", ".pdf")
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
             for filename, file_bytes in outputs:
@@ -256,7 +259,7 @@ class ConvertService:
         zip_buffer.seek(0)
         return (
             zip_buffer,
-            "hasil_konversi_pdf.zip",
+            OutputNamingService.build_filename("converted_documents", ".zip"),
             "application/zip",
             f"{len(outputs)} file berhasil dikonversi menjadi PDF terpisah.",
         )

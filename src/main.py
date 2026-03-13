@@ -6,7 +6,6 @@ from src.presenters.file_locker_presenter import FileLockerPresenter
 from src.presenters.file_compressor_presenter import FileCompressorPresenter
 from src.presenters.file_converter_presenter import FileConverterPresenter
 from src.presenters.file_watermark_presenter import FileWatermarkPresenter
-from src.presenters.file_cleaner_presenter import FileCleanerPresenter
 from src.presenters.file_split_merge_presenter import FileSplitMergePresenter
 from src.presenters.home_presenter import HomePresenter
 from src.services.auth_service import AuthService
@@ -18,7 +17,6 @@ from src.views.file_locker_encrypt_view import FileLockerEncryptView
 from src.views.file_compressor_view import FileCompressorView
 from src.views.file_converter_view import FileConverterView
 from src.views.file_watermark_view import FileWatermarkView
-from src.views.file_cleaner_view import FileCleanerView
 from src.views.file_split_merge_view import FileSplitMergeView
 from src.views.home_view import HomeView
 
@@ -43,9 +41,6 @@ class App:
         self.file_watermark_presenter = FileWatermarkPresenter(
             view=FileWatermarkView()
         )
-        self.file_cleaner_presenter = FileCleanerPresenter(
-            view=FileCleanerView()
-        )
         self.file_split_merge_presenter = FileSplitMergePresenter(
             view=FileSplitMergeView()
         )
@@ -67,9 +62,14 @@ class App:
                 st.image(str(logo_path), use_container_width=True)
         SessionStateManager.ensure_defaults()
 
+        if SessionStateManager.is_session_expired(AuthService.get_session_timeout_seconds()):
+            SessionStateManager.expire_session("Sesi berakhir karena tidak ada aktivitas. Silakan login kembali.")
+
         if not SessionStateManager.is_authenticated():
             self._render_login_page()
             return
+
+        SessionStateManager.touch_activity()
 
         page = SessionStateManager.get_page()
         if page == Page.HOME:
@@ -84,8 +84,6 @@ class App:
             self.file_converter_presenter.present()
         elif page == Page.WATERMARK:
             self.file_watermark_presenter.present()
-        elif page == Page.CLEANER:
-            self.file_cleaner_presenter.present()
         elif page == Page.SPLIT_MERGE:
             self.file_split_merge_presenter.present()
         else:
@@ -93,16 +91,25 @@ class App:
 
     def _render_login_page(self) -> None:
         st.markdown("## 🔒 Masuk ke Tools Dokumen")
-        st.caption("Masukkan password untuk mengakses seluruh fitur di aplikasi ini.")
+        st.caption("Masukkan password untuk mengakses seluruh fitur di aplikasi ini. Upload diproses di memori dan state sensitif akan dibersihkan saat sesi berakhir.")
+
+        auth_notice = SessionStateManager.consume_auth_notice()
+        if auth_notice:
+            st.warning(auth_notice)
 
         with st.form("login_form", clear_on_submit=False):
             password = st.text_input("Password", type="password", placeholder="Masukkan password")
             submitted = st.form_submit_button("Masuk", use_container_width=True, type="primary")
 
-        st.info(
-            "Password default saat ini: `dokumen123`. "
-            "Untuk mengganti, set `TOOLS_DOKUMEN_PASSWORD` atau `app_password` di Streamlit secrets."
-        )
+        if AuthService.is_default_password_in_use():
+            st.warning(
+                "Aplikasi masih memakai password default. Demi keamanan, ganti segera lewat environment variable "
+                "`TOOLS_DOKUMEN_PASSWORD` atau `app_password` di Streamlit secrets."
+            )
+        else:
+            st.info(
+                "Gunakan `TOOLS_DOKUMEN_PASSWORD` atau `app_password` di Streamlit secrets untuk mengelola password aplikasi."
+            )
 
         if submitted:
             if AuthService.verify_password(password):

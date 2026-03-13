@@ -2,6 +2,8 @@ import zipfile
 import io
 from PIL import Image, ImageOps, UnidentifiedImageError
 
+from src.services.output_naming_service import OutputNamingService
+
 
 class CompressService:
     """Service untuk mengkompres file dengan metode optimal"""
@@ -24,13 +26,8 @@ class CompressService:
         if not files:
             raise ValueError("Tidak ada file untuk dikompres")
 
-        base_output_name = "compressed_files"
         if len(files) == 1:
             single_name = getattr(files[0], "name", "file")
-            if "." in single_name:
-                base_output_name = single_name.rsplit(".", 1)[0]
-            else:
-                base_output_name = single_name
 
             # Metode khusus PPTX: kompres gambar di dalam PPT lalu pack ulang ke PPTX
             if single_name.lower().endswith(".pptx"):
@@ -46,12 +43,12 @@ class CompressService:
             if use_7z:
                 try:
                     import py7zr
-                    return CompressService._compress_7z(files, compression_level, f"{base_output_name}.7z")
+                    return CompressService._compress_7z(files, compression_level, OutputNamingService.build_filename("compressed_archive", ".7z"))
                 except ImportError:
                     # Fallback to ZIP if py7zr not available
-                    return CompressService._compress_zip(files, compression_level, f"{base_output_name}.zip")
+                    return CompressService._compress_zip(files, compression_level, OutputNamingService.build_filename("compressed_archive", ".zip"))
             else:
-                return CompressService._compress_zip(files, compression_level, f"{base_output_name}.zip")
+                return CompressService._compress_zip(files, compression_level, OutputNamingService.build_filename("compressed_archive", ".zip"))
         except Exception as e:
             raise Exception(f"Gagal mengkompres: {str(e)}")
 
@@ -116,11 +113,7 @@ class CompressService:
 
         output_buffer.seek(0)
 
-        original_name = getattr(file, "name", "presentation.pptx")
-        if original_name.lower().endswith(".pptx"):
-            output_name = f"{original_name[:-5]}_compressed.pptx"
-        else:
-            output_name = "presentation_compressed.pptx"
+        output_name = OutputNamingService.build_filename("compressed_document", ".pptx")
 
         return output_buffer, output_name, True
 
@@ -254,11 +247,7 @@ class CompressService:
         
         output_buffer.seek(0)
         
-        original_name = getattr(file, "name", "document.pdf")
-        if original_name.lower().endswith(".pdf"):
-            output_name = f"{original_name[:-4]}_compressed.pdf"
-        else:
-            output_name = "document_compressed.pdf"
+        output_name = OutputNamingService.build_filename("compressed_document", ".pdf")
         
         return output_buffer, output_name, True
     
@@ -266,12 +255,16 @@ class CompressService:
     def _compress_zip(files: list, compression_level: int, output_name: str) -> tuple[io.BytesIO, str, bool]:
         """Kompresi menggunakan ZIP format"""
         zip_buffer = io.BytesIO()
+        anonymous_names = [
+            OutputNamingService.build_filename("compressed_item", getattr(file, "name", "").rsplit(".", 1)[-1] if "." in getattr(file, "name", "") else ".bin", index=index)
+            for index, file in enumerate(files, start=1)
+        ]
         
         # Gunakan compression level yang tepat
         compress_type = zipfile.ZIP_DEFLATED if compression_level > 0 else zipfile.ZIP_STORED
         
         with zipfile.ZipFile(zip_buffer, 'w', compress_type) as zip_file:
-            for file in files:
+            for file, anonymous_name in zip(files, anonymous_names):
                 # Reset file pointer
                 file.seek(0)
                 # Read file content
@@ -279,13 +272,13 @@ class CompressService:
                 # Add to ZIP dengan compression
                 if compression_level > 0:
                     zip_file.writestr(
-                        file.name, 
+                        anonymous_name,
                         file_content, 
                         compress_type=zipfile.ZIP_DEFLATED, 
                         compresslevel=compression_level
                     )
                 else:
-                    zip_file.writestr(file.name, file_content)
+                    zip_file.writestr(anonymous_name, file_content)
         
         zip_buffer.seek(0)
         return zip_buffer, output_name, True
@@ -304,11 +297,13 @@ class CompressService:
         zip_buffer = io.BytesIO()
         
         with py7zr.SevenZipFile(zip_buffer, 'w', filters=filters) as archive:
-            for file in files:
+            for index, file in enumerate(files, start=1):
                 file.seek(0)
                 file_content = file.read()
                 # Write file to archive
-                archive.writestr(file_content, arcname=file.name)
+                extension = file.name.rsplit('.', 1)[-1] if '.' in file.name else '.bin'
+                anonymous_name = OutputNamingService.build_filename("compressed_item", extension, index=index)
+                archive.writestr(file_content, arcname=anonymous_name)
         
         zip_buffer.seek(0)
         return zip_buffer, output_name, True

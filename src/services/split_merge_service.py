@@ -9,6 +9,8 @@ from typing import Any
 
 from pypdf import PdfReader, PdfWriter
 
+from src.services.output_naming_service import OutputNamingService
+
 
 class SplitMergeService:
     @staticmethod
@@ -202,7 +204,7 @@ class SplitMergeService:
         out = io.BytesIO()
         writer.write(out)
         out.seek(0)
-        return out, "merged_document.pdf", "application/pdf", "PDF berhasil digabung."
+        return out, OutputNamingService.build_filename("merged_document", ".pdf"), "application/pdf", "PDF berhasil digabung."
 
     @staticmethod
     def _split_word_to_pdf(upload: Any, groups: list[list[int]], output_names: list[str] | None = None) -> tuple[io.BytesIO, str, str, str]:
@@ -316,7 +318,7 @@ class SplitMergeService:
 
             output = io.BytesIO(output_path.read_bytes())
             output.seek(0)
-            return output, output_path.name, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "Dokumen Word berhasil digabung."
+            return output, OutputNamingService.build_filename("merged_document", ".docx"), "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "Dokumen Word berhasil digabung."
 
     @staticmethod
     def _split_ppt(upload: Any, groups: list[list[int]], output_names: list[str] | None = None) -> tuple[io.BytesIO, str, str, str]:
@@ -408,10 +410,11 @@ class SplitMergeService:
 
             output = io.BytesIO(output_path.read_bytes())
             output.seek(0)
-            return output, output_path.name, "application/vnd.openxmlformats-officedocument.presentationml.presentation", "PowerPoint berhasil digabung."
+            return output, OutputNamingService.build_filename("merged_presentation", ".pptx"), "application/vnd.openxmlformats-officedocument.presentationml.presentation", "PowerPoint berhasil digabung."
 
     @staticmethod
     def _package_outputs(outputs: list[tuple[str, bytes]], base_name: str, success_message: str) -> tuple[io.BytesIO, str, str, str]:
+        outputs = OutputNamingService.anonymize_named_payloads(outputs, "processed_part")
         if len(outputs) == 1:
             filename, file_bytes = outputs[0]
             buffer = io.BytesIO(file_bytes)
@@ -424,7 +427,7 @@ class SplitMergeService:
             for filename, file_bytes in outputs:
                 archive.writestr(filename, file_bytes)
         zip_buffer.seek(0)
-        return zip_buffer, f"{base_name}.zip", "application/zip", success_message
+        return zip_buffer, OutputNamingService.build_filename("processed_parts", ".zip"), "application/zip", success_message
 
     @staticmethod
     def _mime_for_filename(filename: str) -> str:
@@ -450,13 +453,7 @@ class SplitMergeService:
         output_names: list[str] | None,
         extension: str,
     ) -> str:
-        raw_name = None
-        if output_names and index - 1 < len(output_names):
-            raw_name = output_names[index - 1]
-        stem = cls._sanitize_name(raw_name) if raw_name else f"{base_name}_part_{index}"
-        if not stem.lower().endswith(extension):
-            stem = f"{stem}{extension}"
-        return stem
+        return OutputNamingService.build_filename("processed_part", extension, index=index)
 
     @staticmethod
     def _word_page_count(upload: Any) -> int:
