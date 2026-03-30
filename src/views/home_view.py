@@ -5,6 +5,7 @@ import streamlit as st
 
 @dataclass
 class HomeViewResult:
+    open_approval: bool
     open_locker: bool
     open_compressor: bool
     open_converter: bool
@@ -13,9 +14,27 @@ class HomeViewResult:
 
 
 class HomeView:
-    def render(self) -> HomeViewResult:
+    def render(self, is_admin: bool, pending_count: int) -> HomeViewResult:
         st.title("🛠️ Kumpulan Tools Dokumen")
         st.caption("Halaman utama berisi tombol ke tools singkat: File Locker, Kompresi, dan Konversi Dokumen.")
+
+        open_approval = False
+
+        if is_admin:
+            st.markdown("---")
+
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.markdown("### ✅ Approval Registrasi (Admin)")
+                st.write("Review user baru yang registrasi lalu approve/reject akses login.")
+                st.caption(f"Pending saat ini: {pending_count} user")
+            with col2:
+                open_approval = st.button(
+                    "Buka Approval",
+                    use_container_width=True,
+                    type="primary",
+                    key="btn_approval",
+                )
         
         st.markdown("---")
         
@@ -43,7 +62,7 @@ class HomeView:
         col1, col2 = st.columns([3, 1])
         with col1:
             st.markdown("### 🔄 Konversi Dokumen")
-            st.write("Konversi PDF ke Word/PPT dan sebaliknya Office/gambar ke PDF.")
+            st.write("Konversi PDF ke Word/PPT/Excel dan sebaliknya Office/gambar ke PDF.")
         with col2:
             open_converter = st.button("Buka Konversi", use_container_width=True, type="primary", key="btn_converter")
 
@@ -68,6 +87,7 @@ class HomeView:
             open_split_merge = st.button("Buka Splitter", use_container_width=True, type="primary", key="btn_split_merge")
 
         return HomeViewResult(
+            open_approval=open_approval,
             open_locker=open_locker,
             open_compressor=open_compressor,
             open_converter=open_converter,

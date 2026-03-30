@@ -18,7 +18,7 @@ from src.services.output_naming_service import OutputNamingService
 
 class ConvertService:
     SUPPORTED_OPTIONS: dict[str, list[str]] = {
-        ".pdf": ["docx", "pptx"],
+        ".pdf": ["docx", "pptx", "xlsx"],
         ".doc": ["pdf"],
         ".docx": ["pdf"],
         ".xls": ["pdf"],
@@ -36,6 +36,7 @@ class ConvertService:
         "pdf": "application/pdf",
         "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     }
 
     @staticmethod
@@ -113,6 +114,8 @@ class ConvertService:
             return cls._pdf_to_docx(file_bytes, source_name)
         if source_ext == ".pdf" and target_format == "pptx":
             return cls._pdf_to_pptx(file_bytes, source_name)
+        if source_ext == ".pdf" and target_format == "xlsx":
+            return cls._pdf_to_excel(file_bytes)
         if target_format == "pdf":
             return cls._convert_to_pdf(file_bytes, source_name)
 
@@ -187,6 +190,68 @@ class ConvertService:
             output.seek(0)
             filename = OutputNamingService.build_filename("converted_document", ".pdf")
             return output, filename, cls.MIME_BY_EXT["pdf"], "Gambar berhasil dikonversi ke PDF."
+
+    @classmethod
+    def _pdf_to_excel(cls, file_bytes: bytes) -> tuple[io.BytesIO, str, str, str]:
+        import pandas as pd
+
+        output = io.BytesIO()
+        pdf = fitz.open(stream=file_bytes, filetype="pdf")
+
+        try:
+            with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                sheet_index = 1
+                has_written_content = False
+
+                for page_number, page in enumerate(pdf, start=1):
+                    try:
+                        table_finder = page.find_tables()
+                        tables = table_finder.tables if table_finder else []
+                    except Exception:
+                        tables = []
+
+                    for table in tables:
+                        table_rows = table.extract() or []
+                        cleaned_rows = [row for row in table_rows if any((cell or "").strip() for cell in row)]
+                        if not cleaned_rows:
+                            continue
+
+                        header = [str(col).strip() if col is not None else "" for col in cleaned_rows[0]]
+                        data_rows = cleaned_rows[1:] if len(cleaned_rows) > 1 else []
+                        dataframe = pd.DataFrame(data_rows, columns=header)
+
+                        sheet_name = f"Halaman_{page_number}_{sheet_index}"
+                        dataframe.to_excel(writer, sheet_name=sheet_name[:31], index=False)
+                        sheet_index += 1
+                        has_written_content = True
+
+                if not has_written_content:
+                    fallback_rows: list[dict[str, str]] = []
+                    for page_number, page in enumerate(pdf, start=1):
+                        text = page.get_text("text") or ""
+                        lines = [line.strip() for line in text.splitlines() if line.strip()]
+                        for line_number, line in enumerate(lines, start=1):
+                            fallback_rows.append(
+                                {
+                                    "halaman": str(page_number),
+                                    "baris": str(line_number),
+                                    "teks": line,
+                                }
+                            )
+
+                    fallback_df = pd.DataFrame(fallback_rows or [{"halaman": "", "baris": "", "teks": ""}])
+                    fallback_df.to_excel(writer, sheet_name="PDF_Text", index=False)
+        finally:
+            pdf.close()
+
+        output.seek(0)
+        filename = OutputNamingService.build_filename("converted_document", ".xlsx")
+        return (
+            output,
+            filename,
+            cls.MIME_BY_EXT["xlsx"],
+            "PDF berhasil dikonversi ke Excel (tabel terdeteksi otomatis; jika tidak ada tabel, teks diekspor).",
+        )
 
     @classmethod
     def _office_to_pdf(cls, file_bytes: bytes, source_name: str) -> tuple[io.BytesIO, str, str, str]:

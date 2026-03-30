@@ -141,6 +141,22 @@ def apply_custom_theme() -> None:
             transform: translateY(-2px) !important;
             box-shadow: 0 6px 16px rgba(6, 182, 212, 0.4) !important;
           }
+
+          /* Sidebar primary button (Logout) - Black */
+          [data-testid="stSidebar"] .stButton button[kind="primary"],
+          [data-testid="stSidebar"] .stButton button[data-testid="baseButton-primary"] {
+            background: #111827 !important;
+            color: #ffffff !important;
+            border: 1px solid #111827 !important;
+            box-shadow: 0 4px 12px rgba(17, 24, 39, 0.35) !important;
+          }
+
+          [data-testid="stSidebar"] .stButton button[kind="primary"]:hover,
+          [data-testid="stSidebar"] .stButton button[data-testid="baseButton-primary"]:hover {
+            background: #000000 !important;
+            border-color: #000000 !important;
+            box-shadow: 0 6px 14px rgba(0, 0, 0, 0.45) !important;
+          }
           
           /* Download Buttons - Green Gradient */
           .stDownloadButton button {

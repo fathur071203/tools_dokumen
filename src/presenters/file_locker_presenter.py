@@ -5,6 +5,7 @@ from datetime import datetime
 import streamlit as st
 
 from src.models.file_locker_model import DecryptedArtifact, EncryptedArtifact, FileLockerModel
+from src.services.security_service import SecurityService
 from src.state.session_state import Page, SessionStateManager
 from src.views.file_locker_decrypt_view import FileLockerDecryptView
 from src.views.file_locker_encrypt_view import FileLockerEncryptView
@@ -34,6 +35,11 @@ class FileLockerPresenter:
 
         if not result.uploads:
             st.error("Tidak ada file untuk dienkripsi.")
+            return
+
+        is_safe, security_message = SecurityService.validate_uploads(result.uploads)
+        if not is_safe:
+            st.error(f"❌ Upload ditolak: {security_message}")
             return
 
         for idx, password in enumerate(result.passwords):
@@ -70,6 +76,14 @@ class FileLockerPresenter:
 
         if not result.encrypted_file:
             st.error("Tidak ada file yang dipilih.")
+            return
+
+        dec_safe, dec_message = SecurityService.validate_uploads(
+            [result.encrypted_file],
+            allowed_extensions={".encrypted", ".pdf"},
+        )
+        if not dec_safe:
+            st.error(f"❌ File dekripsi ditolak: {dec_message}")
             return
 
         if not result.password or len(result.password.strip()) < 8:

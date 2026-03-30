@@ -1,31 +1,16 @@
-from enum import Enum
 import time
 
 import streamlit as st
 
 
-class Page(str, Enum):
-    HOME = "home"
-    APPROVAL = "approval"
-    LOCKER = "locker"
-    DECRYPT = "decrypt"
-    COMPRESSOR = "compressor"
-    CONVERTER = "converter"
-    WATERMARK = "watermark"
-    SPLIT_MERGE = "split_merge"
-
-
 class SessionStateManager:
-    KEY_PAGE = "page"
-    KEY_AUTHENTICATED = "authenticated"
-    KEY_LAST_ACTIVITY_AT = "last_activity_at"
-    KEY_AUTH_NOTICE = "auth_notice"
-    KEY_AUTH_USER = "auth_user"
+    KEY_AUTHENTICATED = "chatbot_authenticated"
+    KEY_LAST_ACTIVITY_AT = "chatbot_last_activity_at"
+    KEY_AUTH_NOTICE = "chatbot_auth_notice"
+    KEY_AUTH_USER = "chatbot_auth_user"
 
     @classmethod
     def ensure_defaults(cls) -> None:
-        if cls.KEY_PAGE not in st.session_state:
-            st.session_state[cls.KEY_PAGE] = Page.HOME.value
         if cls.KEY_AUTHENTICATED not in st.session_state:
             st.session_state[cls.KEY_AUTHENTICATED] = False
         if cls.KEY_LAST_ACTIVITY_AT not in st.session_state:
@@ -36,26 +21,13 @@ class SessionStateManager:
             st.session_state[cls.KEY_AUTH_USER] = {}
 
     @classmethod
-    def get_page(cls) -> Page:
-        cls.ensure_defaults()
-        raw = st.session_state.get(cls.KEY_PAGE, Page.HOME.value)
-        try:
-            return Page(raw)
-        except ValueError:
-            return Page.HOME
-
-    @classmethod
-    def go(cls, page: Page) -> None:
-        st.session_state[cls.KEY_PAGE] = page.value
-        st.rerun()
-
-    @classmethod
     def is_authenticated(cls) -> bool:
         cls.ensure_defaults()
         return bool(st.session_state.get(cls.KEY_AUTHENTICATED, False))
 
     @classmethod
     def set_authenticated(cls, value: bool, user: dict | None = None) -> None:
+        cls.ensure_defaults()
         st.session_state[cls.KEY_AUTHENTICATED] = value
         st.session_state[cls.KEY_LAST_ACTIVITY_AT] = time.time() if value else None
         st.session_state[cls.KEY_AUTH_USER] = user or {}
@@ -64,10 +36,6 @@ class SessionStateManager:
     def get_authenticated_user(cls) -> dict:
         cls.ensure_defaults()
         return dict(st.session_state.get(cls.KEY_AUTH_USER, {}) or {})
-
-    @classmethod
-    def logout(cls) -> None:
-        cls.expire_session()
 
     @classmethod
     def touch_activity(cls) -> None:
@@ -87,7 +55,6 @@ class SessionStateManager:
     @classmethod
     def expire_session(cls, notice: str | None = None) -> None:
         cls.clear_transient_state()
-        st.session_state[cls.KEY_PAGE] = Page.HOME.value
         st.session_state[cls.KEY_AUTHENTICATED] = False
         st.session_state[cls.KEY_LAST_ACTIVITY_AT] = None
         st.session_state[cls.KEY_AUTH_NOTICE] = notice or ""
@@ -105,12 +72,11 @@ class SessionStateManager:
     def clear_transient_state(cls) -> None:
         cls.ensure_defaults()
         preserved_keys = {
-            cls.KEY_PAGE,
             cls.KEY_AUTHENTICATED,
             cls.KEY_LAST_ACTIVITY_AT,
             cls.KEY_AUTH_NOTICE,
             cls.KEY_AUTH_USER,
         }
         for key in list(st.session_state.keys()):
-            if key not in preserved_keys:
+            if key not in preserved_keys and not str(key).startswith("chatbot_"):
                 del st.session_state[key]

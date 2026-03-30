@@ -1,6 +1,7 @@
 import streamlit as st
 
 from src.services.convert_service import ConvertService
+from src.services.security_service import SecurityService
 from src.state.session_state import Page, SessionStateManager
 from src.views.file_converter_view import FileConverterView
 
@@ -21,6 +22,11 @@ class FileConverterPresenter:
 
         if not result.uploads:
             st.error("❌ Tidak ada file untuk dikonversi")
+            return
+
+        is_safe, security_message = SecurityService.validate_uploads(result.uploads)
+        if not is_safe:
+            st.error(f"❌ Upload ditolak: {security_message}")
             return
 
         spinner_text = "🔄 Mengonversi file..."

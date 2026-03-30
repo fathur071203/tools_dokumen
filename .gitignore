@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environment
+.venv/
+venv/
+
+# Local env / secrets
+.env
+.streamlit/secrets.toml
+Web_Chatbot/.env
+Web_Chatbot/.streamlit/secrets.toml
+
+# Google credentials
+static/credentials.json
+static/data/credentials.json
+Web_Chatbot/static/credentials.json
+
+# Large generated/local data
+static/data/docs/
+static/data/structured_docs/
+static/data/vectorstore/
+Web_Chatbot/static/data/
+
+# Python caches in subprojects
+Web_Chatbot/**/__pycache__/
+Web_Chatbot/**/*.py[cod]
+
+# IDE
+.vscode/

@@ -1,5 +1,6 @@
 import streamlit as st
 
+from src.services.security_service import SecurityService
 from src.services.split_merge_service import SplitMergeService
 from src.state.session_state import Page, SessionStateManager
 from src.views.file_split_merge_view import FileSplitMergeView
@@ -17,6 +18,12 @@ class FileSplitMergePresenter:
             SessionStateManager.go(Page.HOME)
 
         if not result.action_clicked:
+            return
+
+        allowed_extensions = {".pdf", ".doc", ".docx", ".ppt", ".pptx"}
+        is_safe, security_message = SecurityService.validate_uploads(result.uploads, allowed_extensions=allowed_extensions)
+        if not is_safe:
+            st.error(f"❌ Upload ditolak: {security_message}")
             return
 
         try:

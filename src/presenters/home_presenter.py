@@ -6,8 +6,10 @@ class HomePresenter:
     def __init__(self, view: HomeView):
         self.view = view
 
-    def present(self) -> None:
-        result = self.view.render()
+    def present(self, is_admin: bool, pending_count: int) -> None:
+        result = self.view.render(is_admin=is_admin, pending_count=pending_count)
+        if result.open_approval:
+            SessionStateManager.go(Page.APPROVAL)
         if result.open_locker:
             SessionStateManager.go(Page.LOCKER)
         if result.open_compressor:

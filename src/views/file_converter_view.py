@@ -25,12 +25,12 @@ class FileConverterView:
         with col_b:
             st.markdown("## 🔄 Konversi Dokumen")
             description = (
-                "Konversi dokumen dua arah untuk skenario utama: PDF ke Word/PPT, "
+                "Konversi dokumen dua arah untuk skenario utama: PDF ke Word/PPT/Excel, "
                 "dan Word/Excel/PPT/gambar ke PDF."
             )
             if not ConvertService.supports_office_to_pdf():
                 description = (
-                    "Konversi PDF ke Word/PPT dan gambar ke PDF tersedia di server ini. "
+                    "Konversi PDF ke Word/PPT/Excel dan gambar ke PDF tersedia di server ini. "
                     "Konversi Word/Excel/PPT ke PDF hanya aktif di Windows dengan Microsoft Office desktop."
                 )
             st.markdown(description)
@@ -108,6 +108,7 @@ class FileConverterView:
             support_lines = [
                 "- PDF → DOCX",
                 "- PDF → PPTX",
+                "- PDF → XLSX (Excel)",
                 "- JPG/PNG/BMP/WEBP → PDF",
                 "- Multi-file → PDF gabungan atau ZIP berisi PDF per file",
             ]

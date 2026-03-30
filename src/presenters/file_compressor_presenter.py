@@ -1,4 +1,5 @@
 from src.services.compress_service import CompressService
+from src.services.security_service import SecurityService
 from src.state.session_state import Page, SessionStateManager
 from src.views.file_compressor_view import FileCompressorView
 import streamlit as st
@@ -18,6 +19,11 @@ class FileCompressorPresenter:
         if result.compress_clicked:
             if not result.uploads:
                 st.error("❌ Tidak ada file untuk dikompres")
+                return
+
+            is_safe, security_message = SecurityService.validate_uploads(result.uploads)
+            if not is_safe:
+                st.error(f"❌ Upload ditolak: {security_message}")
                 return
 
             # Compress files

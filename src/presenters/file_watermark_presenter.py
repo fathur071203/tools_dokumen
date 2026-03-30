@@ -1,5 +1,6 @@
 import streamlit as st
 
+from src.services.security_service import SecurityService
 from src.services.watermark_service import WatermarkService
 from src.state.session_state import Page, SessionStateManager
 from src.views.file_watermark_view import FileWatermarkView
@@ -18,6 +19,20 @@ class FileWatermarkPresenter:
 
         if not result.apply_clicked:
             return
+
+        pdf_safe, pdf_message = SecurityService.validate_uploads([result.pdf_upload], allowed_extensions={".pdf"})
+        if not pdf_safe:
+            st.error(f"❌ Upload PDF ditolak: {pdf_message}")
+            return
+
+        if result.watermark_mode == "image" and result.watermark_image is not None:
+            image_safe, image_message = SecurityService.validate_uploads(
+                [result.watermark_image],
+                allowed_extensions={".png"},
+            )
+            if not image_safe:
+                st.error(f"❌ Upload gambar ditolak: {image_message}")
+                return
 
         try:
             with st.spinner("💧 Menambahkan watermark ke PDF..."):
