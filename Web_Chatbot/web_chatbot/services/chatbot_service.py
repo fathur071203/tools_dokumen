@@ -24,12 +24,26 @@ class DocumentChunk:
     page: int
     text: str
     article_candidates: list[str]
+    document_status: str
+    document_status_label: str
+    document_priority: int
 
 
 @dataclass
 class RetrievedChunk:
     chunk: DocumentChunk
     score: float
+
+
+@dataclass
+class RegulationFileStatus:
+    source_relative_path: str
+    title: str
+    category: str
+    source_file_name: str
+    document_status: str
+    document_status_label: str
+    document_priority: int
 
 
 class ChatbotService:
@@ -68,8 +82,19 @@ class ChatbotService:
             counts[category] = counts.get(category, 0) + 1
         return counts
 
-    def get_context_count(self, selected_categories: list[str] | None = None) -> int:
+    def get_context_count(
+        self,
+        selected_categories: list[str] | None = None,
+        selected_documents: list[str] | None = None,
+    ) -> int:
         chunks = list(self._load_chunks())
+
+        doc_selected = selected_documents or []
+        doc_set = {item.strip().lower() for item in doc_selected if item and item.strip()}
+        if doc_set:
+            chunks = [chunk for chunk in chunks if chunk.source_relative_path.strip().lower() in doc_set]
+            return len(chunks)
+
         selected = selected_categories or []
         if not selected:
             return len(chunks)
@@ -80,10 +105,58 @@ class ChatbotService:
 
         return sum(1 for chunk in chunks if chunk.category.strip().lower() in selected_set)
 
+    def get_regulation_file_statuses(self, selected_categories: list[str] | None = None) -> list[RegulationFileStatus]:
+        chunks = list(self._load_chunks())
+        selected = selected_categories or []
+        if selected:
+            selected_set = {item.strip().lower() for item in selected if item and item.strip()}
+            if selected_set:
+                chunks = [chunk for chunk in chunks if chunk.category.strip().lower() in selected_set]
+
+        grouped: dict[str, RegulationFileStatus] = {}
+        for chunk in chunks:
+            key = chunk.source_relative_path.strip()
+            if not key:
+                continue
+
+            current = grouped.get(key)
+            candidate = RegulationFileStatus(
+                source_relative_path=chunk.source_relative_path,
+                title=chunk.title,
+                category=chunk.category,
+                source_file_name=chunk.source_file_name,
+                document_status=chunk.document_status,
+                document_status_label=chunk.document_status_label,
+                document_priority=chunk.document_priority,
+            )
+
+            if current is None:
+                grouped[key] = candidate
+                continue
+
+            if candidate.document_priority > current.document_priority:
+                grouped[key] = candidate
+
+        return sorted(
+            grouped.values(),
+            key=lambda item: (-item.document_priority, item.category.lower(), item.source_file_name.lower()),
+        )
+
+    def get_regulation_status_counts(self, selected_categories: list[str] | None = None) -> dict[str, int]:
+        statuses = self.get_regulation_file_statuses(selected_categories=selected_categories)
+        counts = {"Terbaru": 0, "Berlaku": 0, "Dicabut": 0, "Tidak Berlaku": 0}
+        for item in statuses:
+            label = item.document_status_label
+            if label not in counts:
+                counts[label] = 0
+            counts[label] += 1
+        return counts
+
     def answer_question(
         self,
         question: str,
         selected_categories: list[str] | None = None,
+        selected_documents: list[str] | None = None,
         top_k: int = 6,
         chat_history: list[dict[str, str]] | None = None,
     ) -> tuple[str, list[RetrievedChunk]]:
@@ -91,7 +164,12 @@ class ChatbotService:
         if not clean_question:
             raise ValueError("Pertanyaan tidak boleh kosong.")
 
-        chunks = self._retrieve_chunks(clean_question, selected_categories=selected_categories or [], top_k=top_k)
+        chunks = self._retrieve_chunks(
+            clean_question,
+            selected_categories=selected_categories or [],
+            selected_documents=selected_documents or [],
+            top_k=top_k,
+        )
         if not chunks:
             return (
                 "Maaf, saya belum menemukan konteks yang relevan dari dokumen yang tersedia. "
@@ -151,6 +229,10 @@ class ChatbotService:
             code = str(payload.get("code") or "").strip()
             number_year = str(payload.get("number_year") or "").strip()
             issued_date = str(payload.get("issued_date") or "").strip()
+            document_status, status_label, document_priority = cls._infer_document_status(
+                relative_path=relative_path,
+                source_file_name=source_file_name,
+            )
             pages = payload.get("pages") or []
 
             if isinstance(pages, list) and pages:
@@ -181,6 +263,9 @@ class ChatbotService:
                             page=page_number,
                             text=cls._normalize_text(text),
                             article_candidates=article_candidates,
+                            document_status=document_status,
+                            document_status_label=status_label,
+                            document_priority=document_priority,
                         )
                     )
                 continue
@@ -201,6 +286,9 @@ class ChatbotService:
                         page=0,
                         text=cls._normalize_text(fallback_text),
                         article_candidates=[],
+                        document_status=document_status,
+                        document_status_label=status_label,
+                        document_priority=document_priority,
                     )
                 )
 
@@ -232,9 +320,42 @@ class ChatbotService:
             expanded.update(synonym_map.get(token, []))
         return expanded
 
-    def _retrieve_chunks(self, question: str, selected_categories: list[str], top_k: int) -> list[RetrievedChunk]:
+    @classmethod
+    def _infer_document_status(cls, relative_path: str, source_file_name: str) -> tuple[str, str, int]:
+        joined = f"{relative_path} {source_file_name}".lower()
+
+        if "terbaru_" in joined or "/terbaru_" in joined:
+            return "terbaru", "Terbaru", 3
+        if "dicabut" in joined or "sudah dicabut" in joined:
+            return "dicabut", "Dicabut", 1
+        if "tidak berlaku" in joined or "tidak_berlaku" in joined:
+            return "tidak_berlaku", "Tidak Berlaku", 0
+        return "berlaku", "Berlaku", 2
+
+    @classmethod
+    def _status_score_adjustment(cls, document_status: str) -> float:
+        status_bonus_map = {
+            "terbaru": 0.20,
+            "berlaku": 0.08,
+            "dicabut": -0.12,
+            "tidak_berlaku": -0.18,
+        }
+        return float(status_bonus_map.get(document_status, 0.0))
+
+    def _retrieve_chunks(
+        self,
+        question: str,
+        selected_categories: list[str],
+        selected_documents: list[str],
+        top_k: int,
+    ) -> list[RetrievedChunk]:
         chunks = list(self._load_chunks())
-        if selected_categories:
+
+        selected_doc_set = {item.strip().lower() for item in selected_documents if item and item.strip()}
+        if selected_doc_set:
+            chunks = [chunk for chunk in chunks if chunk.source_relative_path.strip().lower() in selected_doc_set]
+
+        if selected_categories and not selected_doc_set:
             selected = {item.strip().lower() for item in selected_categories if item.strip()}
             chunks = [chunk for chunk in chunks if chunk.category.strip().lower() in selected]
 
@@ -248,8 +369,28 @@ class ChatbotService:
 
         semantic_ranked = self._rerank_with_embeddings(question, lexical_ranked)
         ranked = semantic_ranked if semantic_ranked else lexical_ranked
+
+        ranked_by_id = {item.chunk.chunk_id: item for item in ranked}
+        for chunk in chunks:
+            if chunk.chunk_id not in ranked_by_id:
+                ranked.append(RetrievedChunk(chunk=chunk, score=0.0))
+
+        for item in ranked:
+            item.score += self._status_score_adjustment(item.chunk.document_status)
+
+        has_current_regulation_match = any(
+            item.score > 0
+            and item.chunk.document_status in {"terbaru", "berlaku"}
+            for item in ranked
+        )
+        if has_current_regulation_match:
+            for item in ranked:
+                if item.chunk.document_status in {"dicabut", "tidak_berlaku"}:
+                    item.score -= 0.20
+
         ranked.sort(key=lambda item: item.score, reverse=True)
-        return ranked[:top_k]
+        effective_top_k = len(chunks) if top_k <= 0 else min(top_k, len(chunks))
+        return ranked[:effective_top_k]
 
     def _rank_lexical(self, question: str, chunks: list[DocumentChunk], top_n: int) -> list[RetrievedChunk]:
         q_tokens = self._tokenize(question)
@@ -331,7 +472,7 @@ class ChatbotService:
                     f"[{idx}] Dokumen: {chunk.title} | Kategori: {chunk.category} | "
                     f"Sumber: {chunk.source_relative_path} | Halaman: {chunk.page}\n"
                     f"Metadata: Instrumen: {chunk.instrument_type or '-'} | Kode: {chunk.code or chunk.number_year or '-'} | "
-                    f"Tanggal: {chunk.issued_date or '-'} | Kandidat Pasal: {article_text}\n"
+                    f"Tanggal: {chunk.issued_date or '-'} | Status Dokumen: {chunk.document_status_label} | Kandidat Pasal: {article_text}\n"
                     f"Isi: {chunk.text}"
                 )
             )
@@ -397,7 +538,13 @@ class ChatbotService:
         article_part = ", ".join(chunk.article_candidates[:4]) if chunk.article_candidates else "-"
         quote = ChatbotService._extract_representative_sentence(chunk.text)
         article_snippets = ChatbotService._extract_article_snippets(chunk.text, chunk.article_candidates, max_items=4)
-        return {"short_quote": quote, "article_list": article_part, "article_snippets": article_snippets}
+        return {
+            "short_quote": quote,
+            "article_list": article_part,
+            "article_snippets": article_snippets,
+            "document_status": chunk.document_status,
+            "document_status_label": chunk.document_status_label,
+        }
 
     @staticmethod
     def _extract_representative_sentence(text: str) -> str:

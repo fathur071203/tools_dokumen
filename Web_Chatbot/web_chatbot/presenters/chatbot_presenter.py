@@ -26,12 +26,16 @@ class ChatbotPresenter:
         categories = self.chatbot_service.get_categories()
         category_chunk_counts = self.chatbot_service.get_category_chunk_counts()
         total_context_count = self.chatbot_service.get_context_count()
+        regulation_file_statuses = self.chatbot_service.get_regulation_file_statuses()
+        regulation_status_counts = self.chatbot_service.get_regulation_status_counts()
 
         result = self.view.render(
             messages=self._get_messages(),
             categories=categories,
             category_chunk_counts=category_chunk_counts,
             total_context_count=total_context_count,
+            regulation_file_statuses=regulation_file_statuses,
+            regulation_status_counts=regulation_status_counts,
             is_configured=is_configured,
             config_message=config_message,
         )
@@ -59,10 +63,18 @@ class ChatbotPresenter:
 
         with st.spinner("🔎 Mencari konteks dokumen dan menyiapkan jawaban..."):
             try:
+                effective_top_k = max(
+                    1,
+                    self.chatbot_service.get_context_count(
+                        selected_categories=result.selected_categories,
+                        selected_documents=result.selected_documents,
+                    ),
+                )
                 answer, sources = self.chatbot_service.answer_question(
                     clean_question,
                     selected_categories=result.selected_categories,
-                    top_k=result.top_k,
+                    selected_documents=result.selected_documents,
+                    top_k=effective_top_k,
                     chat_history=chat_history,
                 )
             except Exception as exc:  # noqa: BLE001
@@ -110,6 +122,8 @@ class ChatbotPresenter:
                     "title": chunk.title,
                     "source": DLPService.sanitize_source_label(chunk.source_relative_path),
                     "source_file_name": chunk.source_file_name,
+                    "document_status": chunk.document_status,
+                    "document_status_label": chunk.document_status_label,
                     "page": chunk.page,
                     "instrument_type": chunk.instrument_type,
                     "code": chunk.code,
