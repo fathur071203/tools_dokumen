@@ -13,6 +13,7 @@ class ChatbotViewResult:
     ask_clicked: bool
     question: str
     selected_categories: list[str]
+    selected_path_prefixes: list[str]
     selected_documents: list[str]
     top_k: int
 
@@ -42,6 +43,7 @@ class ChatbotView:
             st.error(f"❌ {config_message}")
 
         selected_categories: list[str] = []
+        selected_path_prefixes: list[str] = []
         selected_documents: list[str] = []
         top_k = 6
         question = ""
@@ -53,10 +55,26 @@ class ChatbotView:
             with st.expander("Opsi Lanjutan (Opsional)", expanded=False):
                 selected_categories = st.multiselect("Filter kategori dokumen", options=categories, default=[])
 
+                folder_options, folder_label_map = self._build_subfolder_options(
+                    regulation_file_statuses,
+                    selected_categories,
+                )
+                selected_path_prefixes = st.multiselect(
+                    "Filter subfolder dokumen (opsional)",
+                    options=folder_options,
+                    default=[],
+                    format_func=lambda opt: folder_label_map.get(opt, opt),
+                )
+
                 document_options: list[str] = []
                 document_label_map: dict[str, str] = {}
                 for item in regulation_file_statuses:
                     if selected_categories and item.category not in selected_categories:
+                        continue
+                    if selected_path_prefixes and not any(
+                        item.source_relative_path.startswith(f"{prefix}/") or item.source_relative_path == prefix
+                        for prefix in selected_path_prefixes
+                    ):
                         continue
                     path = item.source_relative_path
                     label = f"[{item.document_status_label}] {item.source_file_name} — {path}"
@@ -76,6 +94,8 @@ class ChatbotView:
 
                 if selected_documents:
                     st.caption("Jumlah referensi konteks otomatis menyesuaikan dokumen yang dipilih.")
+                elif selected_path_prefixes:
+                    st.caption("Jumlah referensi konteks otomatis menyesuaikan subfolder yang dipilih.")
                 elif selected_categories:
                     selected_context_count = sum(category_chunk_counts.get(category, 0) for category in selected_categories)
                     top_k = max(1, selected_context_count)
@@ -194,9 +214,29 @@ class ChatbotView:
             ask_clicked=ask_clicked,
             question=question,
             selected_categories=selected_categories,
+            selected_path_prefixes=selected_path_prefixes,
             selected_documents=selected_documents,
             top_k=top_k,
         )
+
+    def _build_subfolder_options(
+        self,
+        items: list[RegulationFileStatus],
+        selected_categories: list[str],
+    ) -> tuple[list[str], dict[str, str]]:
+        folder_counts: dict[str, int] = {}
+        for item in items:
+            if selected_categories and item.category not in selected_categories:
+                continue
+
+            parts = [part.strip() for part in item.source_relative_path.split("/") if part.strip()]
+            for idx in range(1, max(len(parts), 1)):
+                prefix = "/".join(parts[:idx])
+                folder_counts[prefix] = folder_counts.get(prefix, 0) + 1
+
+        options = sorted(folder_counts.keys(), key=lambda value: (value.count("/"), value.lower()))
+        label_map = {folder: f"{folder} ({folder_counts.get(folder, 0)} dokumen)" for folder in options}
+        return options, label_map
 
     def _filter_regulation_statuses(
         self,

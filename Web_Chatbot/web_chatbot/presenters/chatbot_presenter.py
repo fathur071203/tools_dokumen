@@ -67,12 +67,14 @@ class ChatbotPresenter:
                     1,
                     self.chatbot_service.get_context_count(
                         selected_categories=result.selected_categories,
+                        selected_path_prefixes=result.selected_path_prefixes,
                         selected_documents=result.selected_documents,
                     ),
                 )
                 answer, sources = self.chatbot_service.answer_question(
                     clean_question,
                     selected_categories=result.selected_categories,
+                    selected_path_prefixes=result.selected_path_prefixes,
                     selected_documents=result.selected_documents,
                     top_k=effective_top_k,
                     chat_history=chat_history,

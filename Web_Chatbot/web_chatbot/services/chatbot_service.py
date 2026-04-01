@@ -85,6 +85,7 @@ class ChatbotService:
     def get_context_count(
         self,
         selected_categories: list[str] | None = None,
+        selected_path_prefixes: list[str] | None = None,
         selected_documents: list[str] | None = None,
     ) -> int:
         chunks = list(self._load_chunks())
@@ -93,6 +94,20 @@ class ChatbotService:
         doc_set = {item.strip().lower() for item in doc_selected if item and item.strip()}
         if doc_set:
             chunks = [chunk for chunk in chunks if chunk.source_relative_path.strip().lower() in doc_set]
+            return len(chunks)
+
+        selected_prefixes = selected_path_prefixes or []
+        prefix_set = {item.strip().lower().strip("/") for item in selected_prefixes if item and item.strip()}
+        if prefix_set:
+            chunks = [
+                chunk
+                for chunk in chunks
+                if any(
+                    chunk.source_relative_path.strip().lower().startswith(f"{prefix}/")
+                    or chunk.source_relative_path.strip().lower() == prefix
+                    for prefix in prefix_set
+                )
+            ]
             return len(chunks)
 
         selected = selected_categories or []
@@ -156,6 +171,7 @@ class ChatbotService:
         self,
         question: str,
         selected_categories: list[str] | None = None,
+        selected_path_prefixes: list[str] | None = None,
         selected_documents: list[str] | None = None,
         top_k: int = 6,
         chat_history: list[dict[str, str]] | None = None,
@@ -167,6 +183,7 @@ class ChatbotService:
         chunks = self._retrieve_chunks(
             clean_question,
             selected_categories=selected_categories or [],
+            selected_path_prefixes=selected_path_prefixes or [],
             selected_documents=selected_documents or [],
             top_k=top_k,
         )
@@ -346,6 +363,7 @@ class ChatbotService:
         self,
         question: str,
         selected_categories: list[str],
+        selected_path_prefixes: list[str],
         selected_documents: list[str],
         top_k: int,
     ) -> list[RetrievedChunk]:
@@ -355,7 +373,19 @@ class ChatbotService:
         if selected_doc_set:
             chunks = [chunk for chunk in chunks if chunk.source_relative_path.strip().lower() in selected_doc_set]
 
-        if selected_categories and not selected_doc_set:
+        selected_prefix_set = {item.strip().lower().strip("/") for item in selected_path_prefixes if item and item.strip()}
+        if selected_prefix_set and not selected_doc_set:
+            chunks = [
+                chunk
+                for chunk in chunks
+                if any(
+                    chunk.source_relative_path.strip().lower().startswith(f"{prefix}/")
+                    or chunk.source_relative_path.strip().lower() == prefix
+                    for prefix in selected_prefix_set
+                )
+            ]
+
+        if selected_categories and not selected_doc_set and not selected_prefix_set:
             selected = {item.strip().lower() for item in selected_categories if item.strip()}
             chunks = [chunk for chunk in chunks if chunk.category.strip().lower() in selected]
 
