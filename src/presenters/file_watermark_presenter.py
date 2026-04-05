@@ -17,7 +17,7 @@ class FileWatermarkPresenter:
         if result.go_home:
             SessionStateManager.go(Page.HOME)
 
-        if not result.apply_clicked:
+        if not result.preview_clicked and not result.apply_clicked:
             return
 
         pdf_safe, pdf_message = SecurityService.validate_uploads([result.pdf_upload], allowed_extensions={".pdf"})
@@ -35,7 +35,8 @@ class FileWatermarkPresenter:
                 return
 
         try:
-            with st.spinner("💧 Menambahkan watermark ke PDF..."):
+            action_text = "Membuat preview watermark" if result.preview_clicked else "Menambahkan watermark ke PDF"
+            with st.spinner(f"💧 {action_text}..."):
                 output, filename, mime_type, message = self.service.add_watermark(
                     pdf_upload=result.pdf_upload,
                     watermark_mode=result.watermark_mode,
@@ -49,6 +50,17 @@ class FileWatermarkPresenter:
                     opacity=result.opacity,
                     size_ratio=result.size_ratio,
                 )
+
+            if result.preview_clicked:
+                st.session_state[FileWatermarkView.KEY_WATERMARK_PREVIEW_PDF] = output.getvalue()
+                preview_images = self.service.build_pdf_preview_images(output, max_pages=3, zoom=1.2)
+                st.session_state[FileWatermarkView.KEY_WATERMARK_PREVIEW_IMAGES] = preview_images
+                st.session_state[FileWatermarkView.KEY_WATERMARK_PREVIEW_SOURCE] = (
+                    f"{getattr(result.pdf_upload, 'name', '')}:{int(getattr(result.pdf_upload, 'size', 0) or 0)}"
+                )
+                st.success("✅ Preview watermark berhasil dibuat. Lihat panel preview di sebelah kanan.")
+                st.rerun()
+                return
 
             st.success(f"✅ {message}")
             st.download_button(

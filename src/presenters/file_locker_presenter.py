@@ -1,5 +1,6 @@
 import io
 import zipfile
+import csv
 from datetime import datetime
 
 import streamlit as st
@@ -42,20 +43,32 @@ class FileLockerPresenter:
             st.error(f"❌ Upload ditolak: {security_message}")
             return
 
-        for idx, password in enumerate(result.passwords):
-            if not password or len(password.strip()) < 8:
-                st.error(f"Password untuk file ke-{idx + 1} minimal 8 karakter.")
-                return
+        if len(result.output_labels) != len(result.uploads):
+            st.error("Konfigurasi alias output tidak valid. Silakan muat ulang halaman.")
+            return
+
+        if any(not label.strip() for label in result.output_labels):
+            st.error("Alias output tidak boleh kosong.")
+            return
+
+        lowered = [label.strip().lower() for label in result.output_labels]
+        if len(set(lowered)) != len(lowered):
+            st.error("Alias output harus unik untuk setiap file.")
+            return
 
         encrypted_artifacts: list[EncryptedArtifact] = []
 
         try:
-            for index, (upload, password) in enumerate(zip(result.uploads, result.passwords), start=1):
+            for index, (upload, password, output_label) in enumerate(
+                zip(result.uploads, result.passwords, result.output_labels),
+                start=1,
+            ):
                 encrypted = self.model.encrypt_file(
                     file_name=upload.name,
                     content=upload.read(),
                     password=password.strip(),
                     output_index=index,
+                    output_label=output_label,
                 )
                 encrypted_artifacts.append(encrypted)
         except Exception as exc:
@@ -63,6 +76,7 @@ class FileLockerPresenter:
             return
 
         st.success("✅ File berhasil dienkripsi.")
+        self._render_encrypt_mapping(encrypted_artifacts, result.passwords)
         self._render_encrypt_download(encrypted_artifacts)
 
     def present_decrypt_page(self) -> None:
@@ -84,10 +98,6 @@ class FileLockerPresenter:
         )
         if not dec_safe:
             st.error(f"❌ File dekripsi ditolak: {dec_message}")
-            return
-
-        if not result.password or len(result.password.strip()) < 8:
-            st.error("Password minimal 8 karakter.")
             return
 
         try:
@@ -131,4 +141,35 @@ class FileLockerPresenter:
             data=zip_buffer,
             file_name=f"encrypted_files_{ts}.zip",
             mime="application/zip",
+        )
+
+    @staticmethod
+    def _render_encrypt_mapping(
+        encrypted_artifacts: list[EncryptedArtifact],
+        passwords: list[str],
+    ) -> None:
+        st.markdown("#### 🧾 Mapping Download & Password")
+
+        rows: list[dict[str, str]] = []
+        for idx, (artifact, pwd) in enumerate(zip(encrypted_artifacts, passwords), start=1):
+            rows.append(
+                {
+                    "No": str(idx),
+                    "File Hasil": artifact.file_name,
+                    "Password": pwd,
+                }
+            )
+
+        st.dataframe(rows, use_container_width=True, hide_index=True)
+
+        csv_buffer = io.StringIO()
+        writer = csv.DictWriter(csv_buffer, fieldnames=["No", "File Hasil", "Password"])
+        writer.writeheader()
+        writer.writerows(rows)
+
+        st.download_button(
+            "📥 Download Mapping (CSV)",
+            data=csv_buffer.getvalue().encode("utf-8"),
+            file_name=f"mapping_password_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv",
         )

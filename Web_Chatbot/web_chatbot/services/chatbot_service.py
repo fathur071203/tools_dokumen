@@ -48,7 +48,7 @@ class RegulationFileStatus:
 
 class ChatbotService:
     BASE_DIR = Path(__file__).resolve().parents[2]
-    DATA_DIR = BASE_DIR / "static" / "data" / "structured_docs"
+    DATA_DIR = BASE_DIR / "static" / "data" / "structured_docs" / "00. Ketentuan"
 
     ENV_GEMINI_API_KEY = "GEMINI_API_KEY"
     ENV_GEMINI_CHAT_MODEL = "GEMINI_CHAT_MODEL"
@@ -159,12 +159,17 @@ class ChatbotService:
 
     def get_regulation_status_counts(self, selected_categories: list[str] | None = None) -> dict[str, int]:
         statuses = self.get_regulation_file_statuses(selected_categories=selected_categories)
-        counts = {"Terbaru": 0, "Berlaku": 0, "Dicabut": 0, "Tidak Berlaku": 0}
+        counts = {"Terbaru": 0, "Diubah": 0, "Dicabut": 0, "Aktif": 0, "Tidak Aktif": 0}
         for item in statuses:
             label = item.document_status_label
             if label not in counts:
                 counts[label] = 0
             counts[label] += 1
+
+            _, activity_label = self._infer_activity_status(item.document_status)
+            if activity_label not in counts:
+                counts[activity_label] = 0
+            counts[activity_label] += 1
         return counts
 
     def answer_question(
@@ -240,8 +245,11 @@ class ChatbotService:
 
             category = str(payload.get("category") or json_file.parent.name).strip()
             title = str(payload.get("title") or json_file.stem).strip()
-            relative_path = str(payload.get("source_relative_path") or json_file.name).strip()
+            relative_path = cls._normalize_path(str(payload.get("source_relative_path") or json_file.name).strip())
+            relative_path = cls._strip_root_category_prefix(relative_path)
             source_file_name = str(payload.get("source_file_name") or Path(relative_path).name).strip()
+            if not relative_path:
+                relative_path = cls._normalize_path(source_file_name or json_file.name)
             instrument_type = str(payload.get("instrument_type") or "").strip()
             code = str(payload.get("code") or "").strip()
             number_year = str(payload.get("number_year") or "").strip()
@@ -316,6 +324,27 @@ class ChatbotService:
         return re.sub(r"\s+", " ", text.replace("\n", " ").replace("\r", " ")).strip()
 
     @classmethod
+    def _normalize_path(cls, value: str) -> str:
+        clean = str(value or "").replace("\\", "/")
+        clean = re.sub(r"/+", "/", clean)
+        return clean.strip().strip("/")
+
+    @classmethod
+    def _strip_root_category_prefix(cls, path: str) -> str:
+        clean_path = cls._normalize_path(path)
+        root_name = cls._normalize_path(cls.DATA_DIR.name)
+        if not clean_path or not root_name:
+            return clean_path
+
+        lower_path = clean_path.lower()
+        lower_root = root_name.lower()
+        if lower_path == lower_root:
+            return ""
+        if lower_path.startswith(f"{lower_root}/"):
+            return clean_path[len(root_name) + 1 :]
+        return clean_path
+
+    @classmethod
     def _tokenize(cls, text: str) -> list[str]:
         return re.findall(r"[a-zA-Z0-9]+", text.lower())
 
@@ -341,21 +370,27 @@ class ChatbotService:
     def _infer_document_status(cls, relative_path: str, source_file_name: str) -> tuple[str, str, int]:
         joined = f"{relative_path} {source_file_name}".lower()
 
-        if "terbaru_" in joined or "/terbaru_" in joined:
+        if "terbaru_" in joined or "/terbaru_" in joined or "terbaru" in joined:
             return "terbaru", "Terbaru", 3
-        if "dicabut" in joined or "sudah dicabut" in joined:
+        if "dicabut" in joined or "sudah dicabut" in joined or "tidak berlaku" in joined or "tidak_berlaku" in joined:
             return "dicabut", "Dicabut", 1
-        if "tidak berlaku" in joined or "tidak_berlaku" in joined:
-            return "tidak_berlaku", "Tidak Berlaku", 0
-        return "berlaku", "Berlaku", 2
+        if "diubah" in joined or "perubahan" in joined or "amandemen" in joined:
+            return "diubah", "Diubah", 2
+        return "diubah", "Diubah", 2
+
+    @classmethod
+    def _infer_activity_status(cls, document_status: str) -> tuple[str, str]:
+        status = str(document_status or "").strip().lower()
+        if status in {"terbaru", "diubah"}:
+            return "aktif", "Aktif"
+        return "tidak_aktif", "Tidak Aktif"
 
     @classmethod
     def _status_score_adjustment(cls, document_status: str) -> float:
         status_bonus_map = {
             "terbaru": 0.20,
-            "berlaku": 0.08,
+            "diubah": 0.08,
             "dicabut": -0.12,
-            "tidak_berlaku": -0.18,
         }
         return float(status_bonus_map.get(document_status, 0.0))
 
@@ -410,12 +445,12 @@ class ChatbotService:
 
         has_current_regulation_match = any(
             item.score > 0
-            and item.chunk.document_status in {"terbaru", "berlaku"}
+            and item.chunk.document_status in {"terbaru", "diubah"}
             for item in ranked
         )
         if has_current_regulation_match:
             for item in ranked:
-                if item.chunk.document_status in {"dicabut", "tidak_berlaku"}:
+                if item.chunk.document_status == "dicabut":
                     item.score -= 0.20
 
         ranked.sort(key=lambda item: item.score, reverse=True)

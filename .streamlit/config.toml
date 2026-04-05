@@ -1,0 +1,12 @@
+[theme]
+base="light"
+primaryColor="#1f4e79"
+backgroundColor="#f8fafc"
+secondaryBackgroundColor="#ffffff"
+textColor="#0f172a"
+
+[client]
+showErrorDetails=true
+
+[logger]
+level="info"

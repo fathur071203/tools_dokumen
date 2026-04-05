@@ -9,6 +9,8 @@ from typing import Any
 
 import fitz
 from PIL import Image
+from docx import Document
+from docx.shared import Inches
 from pptx import Presentation
 from pptx.util import Emu
 from pdf2docx import Converter
@@ -17,6 +19,13 @@ from src.services.output_naming_service import OutputNamingService
 
 
 class ConvertService:
+    PDF_TEXT_MIN_FOR_STRUCTURED_DOCX = 50
+    PDF_TEXT_MIN_FOR_IMAGE_HEAVY_OVERRIDE = 500
+    PDF_IMAGE_HEAVY_TOTAL_IMAGES = 10
+    PDF_PAGE_TEXT_MIN = 80
+    PDF_PAGE_IMAGE_HEAVY_MIN_IMAGES = 5
+    PDF_PAGE_IMAGE_HEAVY_MAX_TEXT = 300
+
     SUPPORTED_OPTIONS: dict[str, list[str]] = {
         ".pdf": ["docx", "pptx", "xlsx"],
         ".doc": ["pdf"],
@@ -132,21 +141,258 @@ class ConvertService:
 
     @classmethod
     def _pdf_to_docx(cls, file_bytes: bytes, source_name: str) -> tuple[io.BytesIO, str, str, str]:
+        processed_pdf = cls._preprocess_pdf(file_bytes)
+        page_modes = cls._detect_pdf_page_modes(processed_pdf)
+        total_pages = len(page_modes)
+        image_pages = sum(1 for mode in page_modes if mode == "image")
+
+        if total_pages and image_pages == total_pages:
+            output = cls._pdf_to_docx_image_fallback(processed_pdf)
+            return (
+                output,
+                OutputNamingService.build_filename("converted_document", ".docx"),
+                cls.MIME_BY_EXT["docx"],
+                "PDF terdeteksi dominan visual (design/scanned). Dikonversi ke Word mode visual (image-based) agar tata letak tetap mirip aslinya.",
+            )
+
+        if total_pages and 0 < image_pages < total_pages:
+            output = cls._pdf_to_docx_page_hybrid(processed_pdf, page_modes)
+            return (
+                output,
+                OutputNamingService.build_filename("converted_document", ".docx"),
+                cls.MIME_BY_EXT["docx"],
+                f"PDF dikonversi dengan Smart Hybrid per halaman: {total_pages - image_pages} halaman teks + {image_pages} halaman visual.",
+            )
+
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             pdf_path = temp_path / source_name
             docx_path = temp_path / f"{Path(source_name).stem}.docx"
-            pdf_path.write_bytes(file_bytes)
+            pdf_path.write_bytes(processed_pdf)
 
             converter = Converter(str(pdf_path))
             try:
-                converter.convert(str(docx_path))
+                try:
+                    converter.convert(
+                        str(docx_path),
+                        start=0,
+                        end=None,
+                        layout=True,
+                        multi_processing=True,
+                    )
+                except TypeError:
+                    # Kompatibilitas jika versi pdf2docx tidak mendukung parameter tambahan.
+                    converter.convert(str(docx_path))
             finally:
                 converter.close()
 
             output = io.BytesIO(docx_path.read_bytes())
             output.seek(0)
-            return output, OutputNamingService.build_filename("converted_document", ".docx"), cls.MIME_BY_EXT["docx"], "PDF berhasil dikonversi ke Word (DOCX)."
+            return (
+                output,
+                OutputNamingService.build_filename("converted_document", ".docx"),
+                cls.MIME_BY_EXT["docx"],
+                "PDF berhasil dikonversi ke Word (DOCX) dengan mode struktur dokumen.",
+            )
+
+    @classmethod
+    def _preprocess_pdf(cls, file_bytes: bytes) -> bytes:
+        """Bersihkan konten PDF untuk mengurangi noise layout sebelum konversi."""
+        pdf = fitz.open(stream=file_bytes, filetype="pdf")
+        try:
+            for page in pdf:
+                try:
+                    page.clean_contents()
+                except Exception:
+                    continue
+            return pdf.tobytes(garbage=3, deflate=True, clean=True)
+        finally:
+            pdf.close()
+
+    @classmethod
+    def _is_complex_layout(cls, file_bytes: bytes) -> bool:
+        """Kompatibilitas API lama: dianggap kompleks jika tipe PDF bukan text-dominant."""
+        return cls._detect_pdf_type(file_bytes) != "text"
+
+    @classmethod
+    def _classify_page_mode(cls, page: fitz.Page) -> str:
+        """Klasifikasi mode per halaman: text vs image (design-heavy/scanned)."""
+        text = (page.get_text("text") or "").strip()
+        text_len = len(text)
+        images = len(page.get_images(full=True))
+
+        if text_len < cls.PDF_PAGE_TEXT_MIN:
+            return "image"
+
+        if images >= cls.PDF_PAGE_IMAGE_HEAVY_MIN_IMAGES and text_len < cls.PDF_PAGE_IMAGE_HEAVY_MAX_TEXT:
+            return "image"
+
+        return "text"
+
+    @classmethod
+    def _extract_clean_text_from_blocks(cls, page: fitz.Page) -> str:
+        """Ekstrak teks berbasis blok agar urutan baca lebih natural dibanding mode text flatten."""
+        blocks = page.get_text("blocks") or []
+        blocks_sorted = sorted(blocks, key=lambda block: (block[1], block[0]))
+
+        pieces: list[str] = []
+        for block in blocks_sorted:
+            text = str(block[4] or "").strip()
+            if text:
+                pieces.append(text)
+
+        return "\n\n".join(pieces)
+
+    @classmethod
+    def _smart_paragraphs(cls, text: str) -> list[str]:
+        """Bangun paragraf lebih rapi dari hasil ekstraksi blok."""
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        if not lines:
+            return []
+
+        paragraphs: list[str] = []
+        current_parts: list[str] = []
+
+        for line in lines:
+            bullet_like = line.startswith(("-", "*", "•"))
+            short_title_like = len(line) < 40
+
+            if bullet_like or short_title_like:
+                if current_parts:
+                    paragraphs.append(" ".join(current_parts).strip())
+                    current_parts = []
+                paragraphs.append(line)
+                continue
+
+            current_parts.append(line)
+
+        if current_parts:
+            paragraphs.append(" ".join(current_parts).strip())
+
+        return [paragraph for paragraph in paragraphs if paragraph]
+
+    @classmethod
+    def _apply_word_style(cls, paragraph, text: str) -> None:
+        """Pilih style sederhana agar hasil Word tidak flat."""
+        clean = (text or "").strip()
+        if not clean:
+            return
+
+        if clean.isupper() and len(clean) <= 80:
+            paragraph.style = "Heading 1"
+            return
+
+        if len(clean) <= 50:
+            paragraph.style = "Heading 2"
+
+    @classmethod
+    def _detect_pdf_page_modes(cls, file_bytes: bytes) -> list[str]:
+        pdf = fitz.open(stream=file_bytes, filetype="pdf")
+        try:
+            return [cls._classify_page_mode(page) for page in pdf]
+        finally:
+            pdf.close()
+
+    @classmethod
+    def _detect_pdf_type(cls, file_bytes: bytes) -> str:
+        """
+        Klasifikasi sederhana namun stabil:
+        - text: dominan teks, cocok untuk pdf2docx
+        - image-heavy: gambar banyak dan teks relatif sedikit
+        - scanned: hampir tidak ada teks
+        """
+        page_modes = cls._detect_pdf_page_modes(file_bytes)
+        total_pages = len(page_modes)
+        image_pages = sum(1 for mode in page_modes if mode == "image")
+
+        pdf = fitz.open(stream=file_bytes, filetype="pdf")
+        total_text_length = 0
+        total_images = 0
+        try:
+            for page in pdf:
+                text = page.get_text("text") or ""
+                total_text_length += len(text.strip())
+                total_images += len(page.get_images(full=True))
+        finally:
+            pdf.close()
+
+        if total_text_length < cls.PDF_TEXT_MIN_FOR_STRUCTURED_DOCX:
+            return "scanned"
+
+        if total_pages and image_pages == total_pages:
+            return "image-heavy"
+
+        if (
+            total_images > cls.PDF_IMAGE_HEAVY_TOTAL_IMAGES
+            and total_text_length < cls.PDF_TEXT_MIN_FOR_IMAGE_HEAVY_OVERRIDE
+        ):
+            return "image-heavy"
+
+        return "text"
+
+    @classmethod
+    def _pdf_to_docx_page_hybrid(cls, file_bytes: bytes, page_modes: list[str] | None = None) -> io.BytesIO:
+        """Hybrid per halaman: halaman text jadi paragraf, halaman design/scanned jadi gambar."""
+        pdf = fitz.open(stream=file_bytes, filetype="pdf")
+        doc = Document()
+        page_width_inches = 6.5
+
+        if page_modes is None or len(page_modes) != len(pdf):
+            page_modes = [cls._classify_page_mode(page) for page in pdf]
+
+        try:
+            for page_idx, page in enumerate(pdf):
+                mode = page_modes[page_idx]
+
+                if mode == "image":
+                    pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+                    image_stream = io.BytesIO(pix.tobytes("png"))
+                    image_stream.seek(0)
+                    doc.add_picture(image_stream, width=Inches(page_width_inches))
+                else:
+                    text = cls._extract_clean_text_from_blocks(page)
+                    paragraphs = cls._smart_paragraphs(text)
+
+                    if not paragraphs:
+                        paragraphs = [text.strip()] if text.strip() else [""]
+
+                    for paragraph_text in paragraphs:
+                        paragraph = doc.add_paragraph(paragraph_text)
+                        cls._apply_word_style(paragraph, paragraph_text)
+
+                if page_idx < len(pdf) - 1:
+                    doc.add_page_break()
+
+            output = io.BytesIO()
+            doc.save(output)
+            output.seek(0)
+            return output
+        finally:
+            pdf.close()
+
+    @classmethod
+    def _pdf_to_docx_image_fallback(cls, file_bytes: bytes) -> io.BytesIO:
+        """Fallback visual-preserving: tiap halaman PDF dijadikan gambar di Word."""
+        pdf = fitz.open(stream=file_bytes, filetype="pdf")
+        doc = Document()
+        page_width_inches = 6.5
+
+        try:
+            for page_idx, page in enumerate(pdf):
+                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+                image_stream = io.BytesIO(pix.tobytes("png"))
+                image_stream.seek(0)
+
+                doc.add_picture(image_stream, width=Inches(page_width_inches))
+                if page_idx < len(pdf) - 1:
+                    doc.add_page_break()
+
+            output = io.BytesIO()
+            doc.save(output)
+            output.seek(0)
+            return output
+        finally:
+            pdf.close()
 
     @classmethod
     def _pdf_to_pptx(cls, file_bytes: bytes, source_name: str) -> tuple[io.BytesIO, str, str, str]:

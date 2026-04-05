@@ -1,5 +1,6 @@
 import mimetypes
 import io
+import re
 import zipfile
 from pathlib import Path
 from dataclasses import dataclass
@@ -40,13 +41,20 @@ class FileLockerModel:
     def __init__(self, crypto_service: CryptoService):
         self.crypto_service = crypto_service
 
-    def encrypt_file(self, file_name: str, content: bytes, password: str, output_index: int | None = None) -> EncryptedArtifact:
+    def encrypt_file(
+        self,
+        file_name: str,
+        content: bytes,
+        password: str,
+        output_index: int | None = None,
+        output_label: str | None = None,
+    ) -> EncryptedArtifact:
         suffix = Path(file_name).suffix.lower()
 
         if suffix == ".pdf":
             encrypted_pdf = self.crypto_service.encrypt_pdf(content, password, original_name=file_name)
             return EncryptedArtifact(
-                file_name=self._build_encrypted_output_name("pdf", output_index),
+                file_name=self._build_encrypted_output_name("pdf", output_index, output_label),
                 content=encrypted_pdf,
                 mime_type="application/pdf",
             )
@@ -57,7 +65,7 @@ class FileLockerModel:
 
         encrypted = self.crypto_service.encrypt_blob(content, password, original_name)
         return EncryptedArtifact(
-            file_name=self._build_encrypted_output_name("encrypted", output_index),
+            file_name=self._build_encrypted_output_name("encrypted", output_index, output_label),
             content=encrypted,
             mime_type="application/octet-stream",
         )
@@ -95,6 +103,16 @@ class FileLockerModel:
         return archive_name, archive_buffer.getvalue()
 
     @staticmethod
-    def _build_encrypted_output_name(extension: str, output_index: int | None = None) -> str:
+    def _build_encrypted_output_name(
+        extension: str,
+        output_index: int | None = None,
+        output_label: str | None = None,
+    ) -> str:
+        if output_label:
+            safe_label = re.sub(r"[^A-Za-z0-9._-]+", "_", output_label.strip())
+            safe_label = Path(safe_label).stem.strip("._-")
+            if safe_label:
+                return f"{safe_label}.{extension}"
+
         index = output_index or 1
         return f"locked_file_{index:03d}.{extension}"

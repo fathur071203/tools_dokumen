@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -16,17 +17,92 @@ from web_chatbot.views.chatbot_view import ChatbotView
 
 
 def apply_theme() -> None:
-    st.markdown(
-        """
+    bg_candidates = [
+        Path(__file__).resolve().parents[1] / "static" / "bg.webp",
+        Path(__file__).resolve().parents[2] / "static" / "bg.webp",
+        Path(__file__).resolve().parents[1] / "static" / "bg.png",
+    ]
+    bg_path = next((path for path in bg_candidates if path.exists()), bg_candidates[0])
+    bg_data_uri = ""
+    if bg_path.exists():
+        mime_type = "image/webp" if bg_path.suffix.lower() == ".webp" else "image/png"
+        encoded = base64.b64encode(bg_path.read_bytes()).decode("utf-8")
+        bg_data_uri = f"data:{mime_type};base64,{encoded}"
+
+    background_layer = f"url('{bg_data_uri}')" if bg_data_uri else "none"
+
+    css_theme = """
         <style>
-          .stApp { background: linear-gradient(135deg, #e0e7ff 0%, #f0f9ff 100%); }
-          .main .block-container {
-            background: rgba(255, 255, 255, 0.8);
-            border-radius: 18px;
-            padding: 1.5rem 1.5rem 1rem 1.5rem !important;
-          }
+                    .stApp {
+                        background-image: __BACKGROUND_LAYER__;
+                        background-size: cover;
+                        background-position: center;
+                        background-attachment: fixed;
+                    }
+
+                    .main .block-container {
+                        background: rgba(255, 255, 255, 0.86);
+                        border: 1px solid rgba(255, 255, 255, 0.7);
+                        box-shadow: 0 14px 30px rgba(15, 23, 42, 0.16);
+                        border-radius: 18px;
+                        padding: 1.5rem 1.5rem 1rem 1.5rem !important;
+                    }
+
+                    div[data-testid="stForm"],
+                    div[data-testid="stExpander"] {
+                        background: rgba(255, 255, 255, 0.92);
+                        border: 1px solid rgba(148, 163, 184, 0.28);
+                        border-radius: 14px;
+                        padding: 0.65rem 0.75rem;
+                    }
+
+                    div[data-testid="stButton"] > button,
+                    div[data-testid="stFormSubmitButton"] > button {
+                        border-radius: 12px;
+                        border: 1px solid rgba(148, 163, 184, 0.4);
+                        backdrop-filter: blur(2px);
+                    }
+
+                    html[data-theme="dark"] .stApp,
+                    body[data-theme="dark"] .stApp {
+                        background-image: __BACKGROUND_LAYER__;
+                    }
+
+                    html[data-theme="dark"] .main .block-container,
+                    body[data-theme="dark"] .main .block-container {
+                        background: rgba(15, 23, 42, 0.78);
+                        border: 1px solid rgba(148, 163, 184, 0.24);
+                    }
+
+                    html[data-theme="dark"] div[data-testid="stForm"],
+                    html[data-theme="dark"] div[data-testid="stExpander"],
+                    body[data-theme="dark"] div[data-testid="stForm"],
+                    body[data-theme="dark"] div[data-testid="stExpander"] {
+                        background: rgba(15, 23, 42, 0.82);
+                        border: 1px solid rgba(148, 163, 184, 0.32);
+                    }
+
+                    @media (prefers-color-scheme: dark) {
+                        .stApp {
+                            background-image: __BACKGROUND_LAYER__;
+                        }
+
+                        .main .block-container {
+                            background: rgba(15, 23, 42, 0.78);
+                            border: 1px solid rgba(148, 163, 184, 0.24);
+                        }
+
+                        div[data-testid="stForm"],
+                        div[data-testid="stExpander"] {
+                            background: rgba(15, 23, 42, 0.82);
+                            border: 1px solid rgba(148, 163, 184, 0.32);
+                        }
+                    }
         </style>
-        """,
+        """
+
+    st.markdown(
+        css_theme.replace("__BACKGROUND_LAYER__", background_layer),
         unsafe_allow_html=True,
     )
 

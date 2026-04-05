@@ -35,7 +35,10 @@ class FileSplitMergePresenter:
                         result.output_names,
                     )
                 else:
-                    output, filename, mime_type, message = self.service.merge_documents(result.uploads)
+                    output, filename, mime_type, message = self.service.merge_documents(
+                        result.uploads,
+                        merge_page_rules=result.merge_page_rules,
+                    )
 
             st.success(f"✅ {message}")
             st.download_button(

@@ -7,6 +7,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+import fitz
 from pypdf import PdfReader, PdfWriter
 
 from src.services.output_naming_service import OutputNamingService
@@ -157,8 +158,11 @@ class SplitMergeService:
             return cls._split_ppt(upload, groups, output_names)
         raise ValueError("Format file belum didukung untuk split")
 
-    @classmethod
-    def merge_documents(cls, uploads: list[Any]) -> tuple[io.BytesIO, str, str, str]:
+    def merge_documents(
+        cls,
+        uploads: list[Any],
+        merge_page_rules: list[str] | None = None,
+    ) -> tuple[io.BytesIO, str, str, str]:
         if len(uploads) < 2:
             raise ValueError("Gabung dokumen membutuhkan minimal 2 file")
         family = cls.get_family(uploads[0].name)
@@ -166,12 +170,52 @@ class SplitMergeService:
             raise ValueError("Semua file harus bertipe sama untuk digabung")
 
         if family == "pdf":
-            return cls._merge_pdf(uploads)
+            return cls._merge_pdf(uploads, merge_page_rules)
         if family == "word":
             return cls._merge_word(uploads)
         if family == "ppt":
             return cls._merge_ppt(uploads)
         raise ValueError("Format file belum didukung untuk merge")
+
+    @staticmethod
+    def parse_page_selection_rule(total_pages: int, rule_text: str | None) -> list[int]:
+        if total_pages < 1:
+            return []
+
+        raw = (rule_text or "").strip().lower()
+        if not raw or raw in {"all", "*", "semua"}:
+            return list(range(1, total_pages + 1))
+
+        pages: list[int] = []
+        seen: set[int] = set()
+        tokens = [token.strip() for token in raw.split(",") if token.strip()]
+        if not tokens:
+            raise ValueError("Rule halaman kosong")
+
+        for token in tokens:
+            if "-" in token:
+                start_text, end_text = token.split("-", 1)
+                start = int(start_text)
+                end = int(end_text)
+                if start > end:
+                    raise ValueError(f"Range tidak valid: {token}")
+                for number in range(start, end + 1):
+                    if number < 1 or number > total_pages:
+                        raise ValueError(f"Halaman {number} di luar total halaman ({total_pages})")
+                    if number not in seen:
+                        seen.add(number)
+                        pages.append(number)
+            else:
+                number = int(token)
+                if number < 1 or number > total_pages:
+                    raise ValueError(f"Halaman {number} di luar total halaman ({total_pages})")
+                if number not in seen:
+                    seen.add(number)
+                    pages.append(number)
+
+        if not pages:
+            raise ValueError("Tidak ada halaman yang dipilih untuk merge")
+        return pages
 
     @staticmethod
     def _split_pdf(upload: Any, groups: list[list[int]], output_names: list[str] | None = None) -> tuple[io.BytesIO, str, str, str]:
@@ -194,17 +238,34 @@ class SplitMergeService:
         return SplitMergeService._package_outputs(outputs, f"{base_name}_split", "PDF berhasil di-split.")
 
     @staticmethod
-    def _merge_pdf(uploads: list[Any]) -> tuple[io.BytesIO, str, str, str]:
+    def _merge_pdf(
+        uploads: list[Any],
+        merge_page_rules: list[str] | None = None,
+    ) -> tuple[io.BytesIO, str, str, str]:
         writer = PdfWriter()
-        for upload in uploads:
+        selected_summary: list[str] = []
+
+        for index, upload in enumerate(uploads):
             upload.seek(0)
             reader = PdfReader(io.BytesIO(upload.read()))
-            for page in reader.pages:
-                writer.add_page(page)
+            total_pages = len(reader.pages)
+            rule = merge_page_rules[index] if merge_page_rules and index < len(merge_page_rules) else "all"
+            selected_pages = SplitMergeService.parse_page_selection_rule(total_pages, rule)
+
+            for page_number in selected_pages:
+                writer.add_page(reader.pages[page_number - 1])
+
+            selected_summary.append(f"{Path(upload.name).name}: {len(selected_pages)}/{total_pages} halaman")
+
         out = io.BytesIO()
         writer.write(out)
         out.seek(0)
-        return out, OutputNamingService.build_filename("merged_document", ".pdf"), "application/pdf", "PDF berhasil digabung."
+        return (
+            out,
+            OutputNamingService.build_filename("merged_document", ".pdf"),
+            "application/pdf",
+            "PDF berhasil digabung. " + " | ".join(selected_summary),
+        )
 
     @staticmethod
     def _split_word_to_pdf(upload: Any, groups: list[list[int]], output_names: list[str] | None = None) -> tuple[io.BytesIO, str, str, str]:
@@ -414,7 +475,7 @@ class SplitMergeService:
 
     @staticmethod
     def _package_outputs(outputs: list[tuple[str, bytes]], base_name: str, success_message: str) -> tuple[io.BytesIO, str, str, str]:
-        outputs = OutputNamingService.anonymize_named_payloads(outputs, "processed_part")
+        outputs = SplitMergeService._dedupe_output_names(outputs)
         if len(outputs) == 1:
             filename, file_bytes = outputs[0]
             buffer = io.BytesIO(file_bytes)
@@ -453,7 +514,33 @@ class SplitMergeService:
         output_names: list[str] | None,
         extension: str,
     ) -> str:
-        return OutputNamingService.build_filename("processed_part", extension, index=index)
+        extension = extension if extension.startswith(".") else f".{extension}"
+        if output_names and index - 1 < len(output_names):
+            candidate = cls._sanitize_name(str(output_names[index - 1] or "").strip())
+            if candidate and candidate != "output":
+                if candidate.lower().endswith(extension.lower()):
+                    return candidate
+                return f"{candidate}{extension}"
+
+        return OutputNamingService.build_filename(base_name, extension, index=index)
+
+    @classmethod
+    def _dedupe_output_names(cls, outputs: list[tuple[str, bytes]]) -> list[tuple[str, bytes]]:
+        used_names: set[str] = set()
+        deduped: list[tuple[str, bytes]] = []
+
+        for filename, file_bytes in outputs:
+            candidate = cls._sanitize_name(Path(filename).stem)
+            extension = Path(filename).suffix or ".bin"
+            final_name = f"{candidate}{extension}"
+            suffix = 2
+            while final_name.lower() in used_names:
+                final_name = f"{candidate}_{suffix}{extension}"
+                suffix += 1
+            used_names.add(final_name.lower())
+            deduped.append((final_name, file_bytes))
+
+        return deduped
 
     @staticmethod
     def _word_page_count(upload: Any) -> int:
@@ -512,3 +599,137 @@ class SplitMergeService:
                 if app is not None:
                     app.Quit()
                 pythoncom.CoUninitialize()
+
+    @classmethod
+    def build_pdf_preview_images(
+        cls,
+        upload: Any,
+        max_pages: int = 3,
+        zoom: float = 1.1,
+    ) -> list[bytes]:
+        """Render preview halaman PDF sebagai PNG agar stabil di browser (tanpa iframe PDF embed)."""
+        if max_pages < 1:
+            return []
+        if cls.get_family(getattr(upload, "name", "")) != "pdf":
+            return []
+
+        upload.seek(0)
+        pdf_bytes = upload.read()
+        if not pdf_bytes:
+            return []
+
+        previews: list[bytes] = []
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        try:
+            matrix = fitz.Matrix(zoom, zoom)
+            page_count = min(max_pages, doc.page_count)
+            for page_index in range(page_count):
+                page = doc.load_page(page_index)
+                pix = page.get_pixmap(matrix=matrix, alpha=False)
+                previews.append(pix.tobytes("png"))
+            return previews
+        finally:
+            doc.close()
+
+    @classmethod
+    def build_pdf_input_page_preview_image(
+        cls,
+        upload: Any,
+        page_number: int,
+        zoom: float = 1.15,
+    ) -> bytes | None:
+        """Render satu halaman PDF input sebagai PNG untuk preview merge."""
+        if cls.get_family(getattr(upload, "name", "")) != "pdf":
+            return None
+        if page_number < 1:
+            return None
+
+        upload.seek(0)
+        pdf_bytes = upload.read()
+        if not pdf_bytes:
+            return None
+
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        try:
+            if page_number > doc.page_count:
+                return None
+            page = doc.load_page(page_number - 1)
+            pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+            return pix.tobytes("png")
+        finally:
+            doc.close()
+
+    @classmethod
+    def build_pdf_merge_preview_images(
+        cls,
+        uploads: list[Any],
+        merge_page_rules: list[str] | None = None,
+        zoom: float = 1.15,
+        max_pages: int = 12,
+    ) -> list[tuple[str, int, bytes]]:
+        """Render preview output merge PDF sesuai urutan hasil gabungan."""
+        if max_pages < 1:
+            return []
+
+        previews: list[tuple[str, int, bytes]] = []
+        for index, upload in enumerate(uploads):
+            if len(previews) >= max_pages:
+                break
+            if cls.get_family(getattr(upload, "name", "")) != "pdf":
+                return []
+
+            upload.seek(0)
+            pdf_bytes = upload.read()
+            if not pdf_bytes:
+                continue
+
+            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+            try:
+                total_pages = doc.page_count
+                rule = merge_page_rules[index] if merge_page_rules and index < len(merge_page_rules) else "all"
+                selected_pages = cls.parse_page_selection_rule(total_pages, rule)
+
+                for page_number in selected_pages:
+                    if len(previews) >= max_pages:
+                        break
+                    if page_number < 1 or page_number > total_pages:
+                        continue
+                    page = doc.load_page(page_number - 1)
+                    pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+                    previews.append((Path(upload.name).name, page_number, pix.tobytes("png")))
+            finally:
+                doc.close()
+
+        return previews
+
+    @classmethod
+    def build_pdf_split_output_preview_images(
+        cls,
+        upload: Any,
+        group: list[int],
+        zoom: float = 1.15,
+    ) -> list[tuple[int, bytes]]:
+        """Render preview per halaman untuk satu output split PDF tertentu."""
+        if cls.get_family(getattr(upload, "name", "")) != "pdf":
+            return []
+        if not group:
+            return []
+
+        upload.seek(0)
+        pdf_bytes = upload.read()
+        if not pdf_bytes:
+            return []
+
+        previews: list[tuple[int, bytes]] = []
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        try:
+            matrix = fitz.Matrix(zoom, zoom)
+            for page_num in group:
+                if page_num < 1 or page_num > doc.page_count:
+                    continue
+                page = doc.load_page(page_num - 1)
+                pix = page.get_pixmap(matrix=matrix, alpha=False)
+                previews.append((page_num, pix.tobytes("png")))
+            return previews
+        finally:
+            doc.close()

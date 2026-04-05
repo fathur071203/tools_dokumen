@@ -324,3 +324,29 @@ class WatermarkService:
         )
         canvas.paste(image, (pad_x, pad_y), image)
         return canvas
+
+    @classmethod
+    def build_pdf_preview_images(
+        cls,
+        pdf_file: io.BytesIO,
+        max_pages: int = 3,
+        zoom: float = 1.2,
+    ) -> list[bytes]:
+        if max_pages < 1:
+            return []
+
+        pdf_file.seek(0)
+        pdf_bytes = pdf_file.read()
+        preview_images: list[bytes] = []
+
+        document = fitz.open(stream=pdf_bytes, filetype="pdf")
+        try:
+            matrix = fitz.Matrix(zoom, zoom)
+            pages_to_render = min(max_pages, document.page_count)
+            for page_index in range(pages_to_render):
+                page = document.load_page(page_index)
+                pix = page.get_pixmap(matrix=matrix, alpha=False)
+                preview_images.append(pix.tobytes("png"))
+            return preview_images
+        finally:
+            document.close()

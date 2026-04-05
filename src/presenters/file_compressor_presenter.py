@@ -31,7 +31,8 @@ class FileCompressorPresenter:
                 try:
                     file_buffer, filename, is_compressed = self.compress_service.compress_files(
                         result.uploads,
-                        compression_level=result.compression_level
+                        compression_mode=result.compression_mode,
+                        pdf_method=result.pdf_method,
                     )
 
                     # Calculate compression info
@@ -41,16 +42,37 @@ class FileCompressorPresenter:
 
                     # Determine format
                     if filename.endswith('.pptx'):
-                        st.success("✅ PPT berhasil dioptimasi (gambar di dalam PPT sudah dikompres).")
+                        if result.compression_mode == self.compress_service.MODE_SAFE:
+                            st.success("✅ PPT berhasil diproses dengan mode aman (optimasi ringan tanpa resize agresif).")
+                        elif result.compression_mode == self.compress_service.MODE_BALANCED:
+                            st.success("✅ PPT berhasil dioptimasi dengan mode seimbang.")
+                        else:
+                            st.success("✅ PPT berhasil dioptimasi dengan mode maksimal.")
                         action_text = "PPT Optimized"
                     elif filename.endswith('.pdf'):
-                        st.success("✅ PDF berhasil dioptimasi (gambar di dalam PDF sudah dikompres).")
+                        actual_pdf_method = self.compress_service.get_last_pdf_method_used()
+                        if result.compression_mode == self.compress_service.MODE_SAFE:
+                            st.success("✅ PDF berhasil diproses dengan mode aman (optimasi ringan).")
+                        elif result.compression_mode == self.compress_service.MODE_BALANCED:
+                            st.success("✅ PDF berhasil dioptimasi dengan mode seimbang.")
+                        else:
+                            st.success("✅ PDF berhasil dioptimasi dengan mode maksimal.")
+                        method_label = {
+                            self.compress_service.PDF_METHOD_GHOSTSCRIPT: "Ghostscript",
+                            self.compress_service.PDF_METHOD_PYMUPDF: "PyMuPDF",
+                        }.get(actual_pdf_method, "Auto")
+                        st.info(f"ℹ️ Metode PDF yang digunakan: **{method_label}**")
                         action_text = "PDF Optimized"
                     elif filename.endswith('.7z'):
                         st.success("✅ Kompresi selesai dengan format 7Z.")
                         action_text = "File 7Z"
                     else:
-                        st.success("✅ Kompresi selesai dengan format ZIP.")
+                        if result.compression_mode == self.compress_service.MODE_SAFE:
+                            st.success("✅ Kompresi selesai dengan mode aman.")
+                        elif result.compression_mode == self.compress_service.MODE_BALANCED:
+                            st.success("✅ Kompresi selesai dengan mode seimbang.")
+                        else:
+                            st.success("✅ Kompresi selesai dengan mode maksimal.")
                         action_text = "File ZIP"
 
                     # Jelaskan bila rasio kompresi kecil
@@ -100,4 +122,8 @@ class FileCompressorPresenter:
 
                 except Exception as e:
                     st.error(f"❌ Gagal memproses file: {str(e)}")
-                    st.write(f"💡 Tip: Jika 7z tidak tersedia, coba gunakan format ZIP")
+                    error_text = str(e).lower()
+                    if "ghostscript" in error_text or "pymupdf" in error_text or ".pdf" in error_text:
+                        st.write("💡 Tip: Untuk PDF lokal, install Ghostscript agar metode Ghostscript dapat digunakan. Jika belum tersedia, gunakan Auto/PyMuPDF.")
+                    else:
+                        st.write("💡 Tip: Jika 7z tidak tersedia, coba gunakan format ZIP")

@@ -1,3 +1,5 @@
+import base64
+
 import streamlit as st
 from pathlib import Path
 from typing import Dict
@@ -136,13 +138,7 @@ class App:
         )
 
         apply_custom_theme()
-        
-        # Display logo if available
-        logo_path = Path("static/Logo.png")
-        if logo_path.exists():
-            col1, col2, col3 = st.columns([1, 2, 1])
-            with col2:
-                st.image(str(logo_path), use_container_width=True)
+
         SessionStateManager.ensure_defaults()
 
         if SessionStateManager.is_session_expired(15 * 60):
@@ -179,87 +175,231 @@ class App:
             self.home_presenter.present()
 
     def _render_login_page(self) -> None:
-        st.markdown("## 🔒 Masuk ke Tools Dokumen")
-        st.caption("Login menggunakan username dan password user masing-masing.")
+        # Apply minimal styling - card removed, low-opacity background
+        bg_path = Path(__file__).resolve().parents[2] / "static" / "bg.webp"
+        if not bg_path.exists():
+            bg_path = Path(__file__).resolve().parents[2] / "static" / "bg.png"
 
-        lock_active, remaining_seconds = self._is_login_temporarily_locked()
-        if lock_active:
-            st.error(
-                f"⛔ Terlalu banyak percobaan login gagal. Coba lagi dalam {max(remaining_seconds // 60, 1)} menit."
+        background_css = ""
+        if bg_path.exists():
+            mime_type = "image/webp" if bg_path.suffix.lower() == ".webp" else "image/png"
+            encoded = base64.b64encode(bg_path.read_bytes()).decode("utf-8")
+            background_css = f"background-image: url('data:{mime_type};base64,{encoded}') !important;"
+
+        logo_html = ""
+        logo_path = Path("static/BI_Logo.png")
+        if not logo_path.exists():
+            logo_path = Path("static/Logo.png")
+        if logo_path.exists():
+            logo_mime = "image/png" if logo_path.suffix.lower() == ".png" else "image/webp"
+            logo_encoded = base64.b64encode(logo_path.read_bytes()).decode("utf-8")
+            logo_html = (
+                "<div class='login-logo-wrap'>"
+                f"<img class='login-logo' src='data:{logo_mime};base64,{logo_encoded}' alt='BI Logo' />"
+                "</div>"
             )
 
-        auth_notice = SessionStateManager.consume_auth_notice()
-        if auth_notice:
-            st.warning(auth_notice)
+        st.markdown(
+            """
+            <style>
+            /* Login background: plain white only */
+            .stApp {
+                background-color: #ffffff !important;
+                background-image: none !important;
+            }
 
-        with st.form("login_form", clear_on_submit=False):
-            username = st.text_input("Username", placeholder="contoh: fathur.mrhmn")
-            password = st.text_input("Password User", type="password", placeholder="Masukkan password user")
-            submitted = st.form_submit_button("Masuk", use_container_width=True, type="primary")
+            h2 {
+                color: #1f4e79 !important;
+                margin-top: 0 !important;
+                margin-bottom: 12px !important;
+                font-size: 1.8rem !important;
+                text-align: center !important;
+                font-weight: 700 !important;
+                background: none !important;
+            }
 
-        with st.expander("➕ Registrasi user baru"):
-            st.caption("Gunakan form ini untuk menambahkan user baru ke daftar spreadsheet.")
-            with st.form("register_user_form", clear_on_submit=True):
-                reg_full_name = st.text_input(
-                    "Nama Lengkap User",
-                    placeholder="Contoh: Siti Aisyah",
-                )
-                reg_email = st.text_input(
-                    "Email User",
-                    placeholder="siti.aisyah@domain.com",
-                )
-                reg_username = st.text_input(
-                    "Username User",
-                    placeholder="contoh: siti.aisyah",
-                )
-                reg_unit = st.text_input(
-                    "Unit / Divisi User",
-                    placeholder="Contoh: Divisi Umum",
-                )
-                reg_password = st.text_input(
-                    "Password User",
-                    type="password",
-                    placeholder="Minimal 8 karakter",
-                )
-                reg_confirm_password = st.text_input(
-                    "Konfirmasi Password User",
-                    type="password",
-                    placeholder="Ulangi password user",
-                )
-                reg_submitted = st.form_submit_button(
-                    "Daftarkan User",
-                    use_container_width=True,
+            .login-subtitle {
+                text-align: center !important;
+                color: #475569 !important;
+                font-size: 0.9rem !important;
+                margin-bottom: 28px !important;
+                line-height: 1.4 !important;
+                background: none !important;
+            }
+
+            .login-logo-wrap {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                margin-bottom: 10px;
+            }
+
+            .login-logo {
+                width: clamp(120px, 24vw, 260px);
+                max-width: 80%;
+                height: auto;
+                object-fit: contain;
+            }
+
+            @media (max-width: 640px) {
+                .login-logo {
+                    width: clamp(120px, 42vw, 220px);
+                    max-width: 92%;
+                }
+            }
+
+            /* Input field styling - fokus banget */
+            input {
+                border-radius: 10px !important;
+                border: 1.5px solid #dbe4ec !important;
+                padding: 11px 14px !important;
+                font-size: 0.9rem !important;
+                background: white !important;
+                color: #0f172a !important;
+                transition: all 0.2s ease !important;
+            }
+
+            input::placeholder {
+                color: #94a3b8 !important;
+            }
+
+            input:focus {
+                border-color: #2bb3c0 !important;
+                box-shadow: 0 0 0 4px rgba(43, 179, 192, 0.2) !important;
+                outline: none !important;
+            }
+
+            /* Expander styling */
+            [data-testid="stExpander"] {
+                border: 1px solid #e2e8f0 !important;
+                border-radius: 10px !important;
+                background: rgba(245, 247, 250, 0.5) !important;
+            }
+
+            /* Dark mode support */
+            html[data-theme="dark"] h2,
+            body[data-theme="dark"] h2 {
+                color: #e0f2fe !important;
+            }
+
+            html[data-theme="dark"] .login-subtitle,
+            body[data-theme="dark"] .login-subtitle {
+                color: #cbd5e1 !important;
+            }
+
+            html[data-theme="dark"] input,
+            body[data-theme="dark"] input {
+                background: #0f172a !important;
+                color: #e0f2fe !important;
+                border-color: #475569 !important;
+            }
+
+            html[data-theme="dark"] input::placeholder,
+            body[data-theme="dark"] input::placeholder {
+                color: #94a3b8 !important;
+            }
+
+            html[data-theme="dark"] input:focus,
+            body[data-theme="dark"] input:focus {
+                border-color: #2bb3c0 !important;
+                box-shadow: 0 0 0 4px rgba(43, 179, 192, 0.25) !important;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        # Center layout using Streamlit columns
+        col1, col2, col3 = st.columns([1, 2, 1])
+
+        with col2:
+            if logo_html:
+                st.markdown(logo_html, unsafe_allow_html=True)
+
+            st.markdown("## 🔐 Masuk ke Tools Dokumen")
+            st.markdown(
+                '<p class="login-subtitle">Login menggunakan username dan password user masing-masing.</p>',
+                unsafe_allow_html=True,
+            )
+
+            lock_active, remaining_seconds = self._is_login_temporarily_locked()
+            if lock_active:
+                st.error(
+                    f"⛔ Terlalu banyak percobaan login gagal. Coba lagi dalam {max(remaining_seconds // 60, 1)} menit."
                 )
 
-            if reg_submitted:
-                reg_identity = self._validate_login_identity(
-                    full_name=reg_full_name,
-                    username=reg_username,
-                    email=reg_email,
-                    unit=reg_unit,
-                )
-                if reg_identity is not None:
-                    password_ok, password_message = self._validate_registration_password(
-                        password=reg_password,
-                        confirm_password=reg_confirm_password,
+            auth_notice = SessionStateManager.consume_auth_notice()
+            if auth_notice:
+                st.warning(auth_notice)
+
+            # LOGIN FORM
+            with st.form("login_form", clear_on_submit=False):
+                username = st.text_input("Username", placeholder="contoh: fathur.mrhmn")
+                password = st.text_input("Password", type="password", placeholder="Masukkan password")
+                submitted = st.form_submit_button("Masuk", use_container_width=True)
+
+            # REGISTRASI SECTION
+            with st.expander("➕ Registrasi user baru"):
+                st.caption("Gunakan form ini untuk menambahkan user baru ke daftar spreadsheet.")
+                with st.form("register_user_form", clear_on_submit=True):
+                    reg_full_name = st.text_input(
+                        "Nama Lengkap User",
+                        placeholder="Contoh: Siti Aisyah",
                     )
-                    if not password_ok:
-                        st.error(f"❌ {password_message}")
-                        return
+                    reg_email = st.text_input(
+                        "Email User",
+                        placeholder="siti.aisyah@domain.com",
+                    )
+                    reg_username = st.text_input(
+                        "Username User",
+                        placeholder="contoh: siti.aisyah",
+                    )
+                    reg_unit = st.text_input(
+                        "Unit / Divisi User",
+                        placeholder="Contoh: Divisi Umum",
+                    )
+                    reg_password = st.text_input(
+                        "Password User",
+                        type="password",
+                        placeholder="Minimal 8 karakter",
+                    )
+                    reg_confirm_password = st.text_input(
+                        "Konfirmasi Password User",
+                        type="password",
+                        placeholder="Ulangi password user",
+                    )
+                    reg_submitted = st.form_submit_button(
+                        "Daftarkan User",
+                        use_container_width=True,
+                    )
 
-                    try:
-                        created, register_message = SpreadsheetTrackingService.register_user(
-                            reg_identity,
-                            reg_password,
+                if reg_submitted:
+                    reg_identity = self._validate_login_identity(
+                        full_name=reg_full_name,
+                        username=reg_username,
+                        email=reg_email,
+                        unit=reg_unit,
+                    )
+                    if reg_identity is not None:
+                        password_ok, password_message = self._validate_registration_password(
+                            password=reg_password,
+                            confirm_password=reg_confirm_password,
                         )
-                        if created:
-                            st.success(f"✅ {register_message}")
-                        else:
-                            st.warning(f"⚠️ {register_message}")
-                    except Exception as exc:  # noqa: BLE001
-                        st.error(f"❌ Registrasi user gagal: {exc}")
+                        if not password_ok:
+                            st.error(f"❌ {password_message}")
+                            return
 
-        st.info("Jika belum punya akun, daftar dulu lewat form Registrasi user baru.")
+                        try:
+                            created, register_message = SpreadsheetTrackingService.register_user(
+                                reg_identity,
+                                reg_password,
+                            )
+                            if created:
+                                st.success(f"✅ {register_message}")
+                            else:
+                                st.warning(f"⚠️ {register_message}")
+                        except Exception as exc:  # noqa: BLE001
+                            st.error(f"❌ Registrasi user gagal: {exc}")
 
         if submitted:
             lock_active, remaining_seconds = self._is_login_temporarily_locked()

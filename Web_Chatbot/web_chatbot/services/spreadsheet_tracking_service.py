@@ -5,13 +5,17 @@ import base64
 import hashlib
 import hmac
 import os
+import random
 import secrets
+import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import gspread
+from gspread.exceptions import APIError
 
 
 @dataclass
@@ -61,100 +65,163 @@ class SpreadsheetTrackingService:
     PASSWORD_HASH_ALGO = "pbkdf2_sha256"
     PASSWORD_HASH_ITERATIONS = 310000
 
+    LOGIN_QUEUE_LOCK_TIMEOUT_SECONDS = 30.0
+    API_MAX_RETRIES = 6
+    API_INITIAL_BACKOFF_SECONDS = 0.6
+    API_MAX_BACKOFF_SECONDS = 6.0
+    API_JITTER_SECONDS = 0.25
+
+    _sheet_operation_lock = threading.Lock()
+
     @classmethod
     def register_user(cls, identity: LoginIdentity, password: str) -> tuple[bool, str]:
-        spreadsheet = cls._open_spreadsheet()
-        users_sheet = cls._get_or_create_worksheet(spreadsheet, cls.USERS_SHEET, cls.USER_HEADERS)
+        def _operation() -> tuple[bool, str]:
+            spreadsheet = cls._open_spreadsheet()
+            users_sheet = cls._get_or_create_worksheet(spreadsheet, cls.USERS_SHEET, cls.USER_HEADERS)
 
-        row, existing = cls._find_user_row_by_username(users_sheet, identity.username)
-        if row:
-            status = str(existing.get("status", "active") or "active")
-            return False, f"Username {identity.username} sudah terdaftar dengan status {status}."
+            row, existing = cls._find_user_row_by_username(users_sheet, identity.username)
+            if row:
+                status = str(existing.get("status", "active") or "active")
+                return False, f"Username {identity.username} sudah terdaftar dengan status {status}."
 
-        row, existing = cls._find_user_row_by_email(users_sheet, identity.email)
-        if row:
-            status = str(existing.get("status", "active") or "active")
-            return False, f"Email {identity.email} sudah terdaftar dengan status {status}."
+            row, existing = cls._find_user_row_by_email(users_sheet, identity.email)
+            if row:
+                status = str(existing.get("status", "active") or "active")
+                return False, f"Email {identity.email} sudah terdaftar dengan status {status}."
 
-        now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-        password_hash = cls._hash_password(password)
+            now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+            password_hash = cls._hash_password(password)
 
-        is_admin_account = cls.is_admin_username(identity.username)
-        initial_status = cls.USER_STATUS_ACTIVE if is_admin_account else cls.USER_STATUS_PENDING
-        initial_role = cls.USER_ROLE_ADMIN if is_admin_account else cls.USER_ROLE_USER
+            is_admin_account = cls.is_admin_username(identity.username)
+            initial_status = cls.USER_STATUS_ACTIVE if is_admin_account else cls.USER_STATUS_PENDING
+            initial_role = cls.USER_ROLE_ADMIN if is_admin_account else cls.USER_ROLE_USER
 
-        users_sheet.append_row(
-            [
-                now,
-                "",
-                identity.full_name,
-                identity.username,
-                identity.email,
-                identity.unit,
-                initial_status,
-                password_hash,
-                initial_role,
-                "",
-                "",
-            ],
-            value_input_option="USER_ENTERED",
-        )
+            users_sheet.append_row(
+                [
+                    now,
+                    "",
+                    identity.full_name,
+                    identity.username,
+                    identity.email,
+                    identity.unit,
+                    initial_status,
+                    password_hash,
+                    initial_role,
+                    "",
+                    "",
+                ],
+                value_input_option="USER_ENTERED",
+            )
 
-        if is_admin_account:
-            return True, "Registrasi admin berhasil. Akun admin langsung aktif."
-        return True, "Registrasi berhasil. Akun Anda menunggu persetujuan admin."
+            if is_admin_account:
+                return True, "Registrasi admin berhasil. Akun admin langsung aktif."
+            return True, "Registrasi berhasil. Akun Anda menunggu persetujuan admin."
+
+        return cls._run_sheet_operation_with_queue(_operation)
 
     @classmethod
     def verify_user_credentials(cls, username: str, password: str) -> tuple[bool, str, LoginIdentity | None]:
-        spreadsheet = cls._open_spreadsheet()
-        users_sheet = cls._get_or_create_worksheet(spreadsheet, cls.USERS_SHEET, cls.USER_HEADERS)
+        def _operation() -> tuple[bool, str, LoginIdentity | None]:
+            spreadsheet = cls._open_spreadsheet()
+            users_sheet = cls._get_or_create_worksheet(spreadsheet, cls.USERS_SHEET, cls.USER_HEADERS)
 
-        _, existing_data = cls._find_user_row_by_username(users_sheet, username)
-        if not existing_data:
-            return False, "Username belum terdaftar.", None
+            _, existing_data = cls._find_user_row_by_username(users_sheet, username)
+            if not existing_data:
+                return False, "Username belum terdaftar.", None
 
-        stored_hash = str(existing_data.get("password_hash", "") or "").strip()
-        if not stored_hash:
-            return False, "Password user belum terdaftar. Silakan daftar ulang.", None
+            stored_hash = str(existing_data.get("password_hash", "") or "").strip()
+            if not stored_hash:
+                return False, "Password user belum terdaftar. Silakan daftar ulang.", None
 
-        if not cls._verify_password(password, stored_hash):
-            return False, "Password user salah.", None
+            if not cls._verify_password(password, stored_hash):
+                return False, "Password user salah.", None
 
-        status = str(existing_data.get("status", "") or "").strip().lower() or cls.USER_STATUS_ACTIVE
-        if status == cls.USER_STATUS_PENDING:
-            return False, "Akun Anda masih menunggu persetujuan admin.", None
-        if status == cls.USER_STATUS_REJECTED:
-            return False, "Akun Anda ditolak admin. Hubungi admin untuk pengajuan ulang.", None
-        if status != cls.USER_STATUS_ACTIVE:
-            return False, f"Status akun tidak diizinkan untuk login: {status}.", None
+            status = str(existing_data.get("status", "") or "").strip().lower() or cls.USER_STATUS_ACTIVE
+            if status == cls.USER_STATUS_PENDING:
+                return False, "Akun Anda masih menunggu persetujuan admin.", None
+            if status == cls.USER_STATUS_REJECTED:
+                return False, "Akun Anda ditolak admin. Hubungi admin untuk pengajuan ulang.", None
+            if status != cls.USER_STATUS_ACTIVE:
+                return False, f"Status akun tidak diizinkan untuk login: {status}.", None
 
-        role = str(existing_data.get("role", "") or "").strip().lower()
-        if not role:
-            role = cls.USER_ROLE_ADMIN if cls.is_admin_username(username) else cls.USER_ROLE_USER
+            role = str(existing_data.get("role", "") or "").strip().lower()
+            if not role:
+                role = cls.USER_ROLE_ADMIN if cls.is_admin_username(username) else cls.USER_ROLE_USER
 
-        identity = LoginIdentity(
-            full_name=str(existing_data.get("full_name", "") or "").strip(),
-            username=str(existing_data.get("username", "") or "").strip().lower(),
-            email=str(existing_data.get("email", "") or "").strip().lower(),
-            unit=str(existing_data.get("unit", "") or "").strip(),
-            role=role,
-        )
-        return True, "Kredensial user valid.", identity
+            identity = LoginIdentity(
+                full_name=str(existing_data.get("full_name", "") or "").strip(),
+                username=str(existing_data.get("username", "") or "").strip().lower(),
+                email=str(existing_data.get("email", "") or "").strip().lower(),
+                unit=str(existing_data.get("unit", "") or "").strip(),
+                role=role,
+            )
+            return True, "Kredensial user valid.", identity
+
+        return cls._run_sheet_operation_with_queue(_operation)
 
     @classmethod
     def register_and_log_login(cls, identity: LoginIdentity) -> tuple[bool, str]:
-        spreadsheet = cls._open_spreadsheet()
-        users_sheet = cls._get_or_create_worksheet(spreadsheet, cls.USERS_SHEET, cls.USER_HEADERS)
-        access_log_sheet = cls._get_or_create_worksheet(spreadsheet, cls.ACCESS_LOG_SHEET, cls.ACCESS_LOG_HEADERS)
+        def _operation() -> tuple[bool, str]:
+            spreadsheet = cls._open_spreadsheet()
+            users_sheet = cls._get_or_create_worksheet(spreadsheet, cls.USERS_SHEET, cls.USER_HEADERS)
+            access_log_sheet = cls._get_or_create_worksheet(spreadsheet, cls.ACCESS_LOG_SHEET, cls.ACCESS_LOG_HEADERS)
 
-        now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-        cls._upsert_user(users_sheet, identity=identity, login_time=now)
+            now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+            cls._upsert_user(users_sheet, identity=identity, login_time=now)
 
-        access_log_sheet.append_row(
-            [now, identity.full_name, identity.email, identity.unit, "login_success", ""],
-            value_input_option="USER_ENTERED",
-        )
-        return True, "Registrasi & tracking login berhasil disimpan ke spreadsheet."
+            access_log_sheet.append_row(
+                [now, identity.full_name, identity.email, identity.unit, "login_success", ""],
+                value_input_option="USER_ENTERED",
+            )
+            return True, "Registrasi & tracking login berhasil disimpan ke spreadsheet."
+
+        return cls._run_sheet_operation_with_queue(_operation)
+
+    @classmethod
+    def _run_sheet_operation_with_queue(cls, operation: Any) -> Any:
+        acquired = cls._sheet_operation_lock.acquire(timeout=cls.LOGIN_QUEUE_LOCK_TIMEOUT_SECONDS)
+        if not acquired:
+            raise TimeoutError(
+                "Layanan login sedang antre. Silakan tunggu beberapa detik lalu coba lagi."
+            )
+
+        try:
+            backoff_seconds = cls.API_INITIAL_BACKOFF_SECONDS
+            for attempt in range(1, cls.API_MAX_RETRIES + 1):
+                try:
+                    return operation()
+                except Exception as exc:  # noqa: BLE001
+                    should_retry = cls._should_retry_spreadsheet_error(exc)
+                    if (not should_retry) or attempt >= cls.API_MAX_RETRIES:
+                        raise
+
+                    jitter = random.uniform(0, cls.API_JITTER_SECONDS)
+                    sleep_seconds = min(backoff_seconds, cls.API_MAX_BACKOFF_SECONDS) + jitter
+                    time.sleep(sleep_seconds)
+                    backoff_seconds = min(backoff_seconds * 2, cls.API_MAX_BACKOFF_SECONDS)
+        finally:
+            cls._sheet_operation_lock.release()
+
+    @classmethod
+    def _should_retry_spreadsheet_error(cls, exc: Exception) -> bool:
+        if isinstance(exc, APIError):
+            status_code = getattr(getattr(exc, "response", None), "status_code", None)
+            if status_code in {429, 500, 502, 503, 504}:
+                return True
+
+        text = str(exc).lower()
+        retry_keywords = [
+            "quota",
+            "rate limit",
+            "too many requests",
+            "timed out",
+            "timeout",
+            "temporarily unavailable",
+            "internal error",
+            "backend error",
+            "try again",
+        ]
+        return any(keyword in text for keyword in retry_keywords)
 
     @classmethod
     def is_admin_username(cls, username: str) -> bool:
